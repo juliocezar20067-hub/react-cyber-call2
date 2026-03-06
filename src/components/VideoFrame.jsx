@@ -13,7 +13,7 @@ export default function VideoFrame() {
       <div className="video-content">
         <VideoOverlay />
         <img
-          src="public\npcs\LightFinger.png"
+          src="https://image2url.com/r2/default/images/1772824379564-be375f73-73b3-4e07-81f9-a0fc9851a25a.png"
           alt="Hands"
           className="character-img"
         />
