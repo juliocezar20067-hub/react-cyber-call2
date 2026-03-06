@@ -1,6 +1,6 @@
 .incoming-screen {
   position: relative;
-  width: 550px;
+  width: min(550px, 94vw);
   border: 1px solid var(--cp-red);
   padding: 40px 30px;
   background: rgba(0,0,0,0.8);
@@ -24,16 +24,16 @@
 
 .incoming-title {
   font-family: 'Orbitron', sans-serif;
-  font-size: 2rem;
+  font-size: clamp(1.3rem, 7vw, 2rem);
   font-weight: 900;
   color: var(--cp-red);
-  letter-spacing: 6px;
+  letter-spacing: clamp(2px, 1vw, 6px);
   text-shadow: 0 0 15px var(--cp-red);
 }
 
 .incoming-name {
   font-family: 'Orbitron', sans-serif;
-  font-size: 3.5rem;
+  font-size: clamp(2rem, 11vw, 3.5rem);
   font-weight: 900;
   text-transform: uppercase;
   color: var(--cp-cyan);
@@ -42,12 +42,14 @@
 }
 
 .incoming-status {
-  font-size: 1.2rem;
+  font-size: clamp(0.9rem, 4vw, 1.2rem);
   color: var(--cp-red);
   letter-spacing: 2px;
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .pulse-dot {
@@ -70,18 +72,25 @@
   border: 2px solid var(--cp-red);
   color: var(--cp-red);
   font-family: 'Orbitron', sans-serif;
-  font-size: 1.8rem;
+  font-size: clamp(1.1rem, 5vw, 1.8rem);
   font-weight: 700;
   padding: 15px 40px;
   cursor: pointer;
   clip-path: polygon(0 0, 100% 0, 100% 70%, 92% 100%, 0 100%);
   transition: 0.2s;
   text-transform: uppercase;
-  letter-spacing: 4px;
+  letter-spacing: clamp(2px, 1vw, 4px);
 }
 
 .answer-btn:hover {
   background: var(--cp-red);
   color: #000;
   box-shadow: 0 0 30px var(--cp-red);
+}
+
+@media (max-width: 520px) {
+  .incoming-screen {
+    padding: 24px 16px;
+    gap: 22px;
+  }
 }

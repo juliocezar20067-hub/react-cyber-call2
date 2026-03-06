@@ -42,3 +42,17 @@
   outline: 2px solid var(--cp-cyan);
   outline-offset: 2px;
 }
+
+@media (max-width: 680px) {
+  .controls {
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .cp-button {
+    width: 100%;
+    font-size: 1rem;
+    padding: 10px;
+  }
+}

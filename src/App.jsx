@@ -23,6 +23,21 @@ function App() {
   const [audioProgress, setAudioProgress] = useState({ loaded: 0, total: 1 });
 
   useEffect(() => {
+    const setViewportHeight = () => {
+      document.documentElement.style.setProperty('--app-vh', `${window.innerHeight * 0.01}px`);
+    };
+
+    setViewportHeight();
+    window.addEventListener('resize', setViewportHeight);
+    window.addEventListener('orientationchange', setViewportHeight);
+
+    return () => {
+      window.removeEventListener('resize', setViewportHeight);
+      window.removeEventListener('orientationchange', setViewportHeight);
+    };
+  }, []);
+
+  useEffect(() => {
     initAudioUnlock();
 
     preloadAllSounds((progress) => {

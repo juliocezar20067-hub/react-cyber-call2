@@ -2,6 +2,7 @@
   --cp-red: #ff3a3a;
   --cp-cyan: #78e2ff;
   --cp-bg: #050505;
+  --app-vh: 1vh;
 }
 
 * {
@@ -12,13 +13,15 @@
 
 body {
   min-height: 100vh;
+  min-height: calc(var(--app-vh) * 100);
   background: var(--cp-bg);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: 'Rajdhani', sans-serif;
   color: var(--cp-cyan);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* Scanlines globais */
@@ -37,6 +40,9 @@ body::before {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: calc(var(--app-vh) * 100);
+  width: 100%;
+  padding: 18px;
 }
 
 .loading-screen {
@@ -44,7 +50,7 @@ body::before {
 }
 
 .loading-card {
-  width: 420px;
+  width: min(420px, 92vw);
   border: 1px solid var(--cp-red);
   padding: 24px;
   background: rgba(0, 0, 0, 0.75);
@@ -90,4 +96,23 @@ body::before {
 .start-button:hover {
   background: var(--cp-red);
   color: #000;
+}
+
+@media (max-width: 768px) {
+  body {
+    align-items: center;
+    justify-content: center;
+  }
+
+  .app {
+    min-height: calc(var(--app-vh) * 100);
+    padding: 14px;
+  }
+
+  .start-button {
+    width: min(420px, 92vw);
+    padding: 14px 18px;
+    font-size: 0.95rem;
+    letter-spacing: 2px;
+  }
 }
