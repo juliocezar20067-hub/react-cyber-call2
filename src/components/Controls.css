@@ -1,0 +1,44 @@
+.controls {
+  margin-top: 25px;
+  display: flex;
+  gap: 15px;
+}
+
+.cp-button {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--cp-red);
+  color: var(--cp-red);
+  padding: 12px;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  clip-path: polygon(0 0, 100% 0, 100% 70%, 92% 100%, 0 100%);
+  transition: 0.2s;
+  /* Garantir que não haja border-radius */
+  border-radius: 0;
+  /* Remover qualquer outline ou foco padrão */
+  outline: none;
+}
+
+.cp-button:hover {
+  background: var(--cp-red);
+  color: #000;
+  box-shadow: 0 0 20px var(--cp-red);
+}
+
+/* Estilo de foco igual ao normal para não mudar ao clicar */
+.cp-button:focus {
+  background: transparent;
+  color: var(--cp-red);
+  box-shadow: none;
+  outline: none;
+}
+
+/* Opcional: se quiser que o foco via teclado seja visível, use :focus-visible */
+.cp-button:focus-visible {
+  outline: 2px solid var(--cp-cyan);
+  outline-offset: 2px;
+}

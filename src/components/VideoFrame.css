@@ -1,0 +1,76 @@
+.video-frame {
+  position: relative;
+  border: 1px solid rgba(255, 58, 58, 0.5);
+  padding: 4px;
+  background: rgba(255, 0, 0, 0.02);
+  box-shadow: 0 0 30px rgba(255, 58, 58, 0.15);
+}
+
+.video-frame::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border: 3px solid var(--cp-red);
+  clip-path: polygon(0 0, 15% 0, 15% 3%, 85% 3%, 85% 0, 100% 0, 100% 100%, 85% 100%, 85% 97%, 15% 97%, 15% 100%, 0 100%);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.video-content {
+  width: 100%;
+  aspect-ratio: 16/14;
+  background: #000;
+  position: relative;
+  overflow: hidden;
+}
+
+.grid-overlay {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--cp-red) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.2;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.character-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: contrast(1.1) brightness(0.8) saturate(1.2);
+  transition: 0.1s;
+}
+
+.tv-glitch-bar {
+  position: absolute;
+  top: -10%;
+  left: 0;
+  width: 100%;
+  height: 10px;
+  background: rgba(255, 58, 58, 0.3);
+  box-shadow: 0 0 15px var(--cp-red), 0 0 30px var(--cp-red);
+  z-index: 20;
+  pointer-events: none;
+  animation: tv-scan-constant 3s linear infinite;
+}
+
+@keyframes tv-scan-constant {
+  0% { top: -10%; opacity: 0.8; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { top: 110%; opacity: 0; }
+}
+
+.glitch-active .character-img {
+  animation: cyber-glitch 0.4s steps(2) infinite;
+}
+
+@keyframes cyber-glitch {
+  0% { transform: translate(0); filter: hue-rotate(0deg); clip-path: inset(10% 0 30% 0); }
+  20% { transform: translate(-5px, 2px); filter: hue-rotate(90deg); clip-path: inset(40% 0 10% 0); }
+  40% { transform: translate(5px, -2px); filter: brightness(2); clip-path: inset(70% 0 5% 0); }
+  60% { transform: translate(-2px, 5px); clip-path: inset(0 0 80% 0); }
+  80% { transform: translate(2px, -5px); clip-path: inset(50% 0 20% 0); }
+  100% { transform: translate(0); }
+}

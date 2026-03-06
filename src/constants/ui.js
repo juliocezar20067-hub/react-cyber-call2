@@ -1,0 +1,10 @@
+﻿export const CALLER_NAME = 'Light Finger';
+export const CONNECTION_CODE = 'CONNECTION 541.44.10';
+export const MOD_LABEL = 'MOD';
+export const INCOMING_TITLE = 'INCOMING CALL';
+export const INCOMING_STATUS_TEXT = 'ENCRYPTED | 54.441.0';
+export const MESSAGE_TEXT = `Ola? Ola? isso ta funcionando? Bom. Meu nome é Light. Fixer. Não, cêis não me conhece. E não, eu não tenho dinheiro. Então antes de desligar, ouve aqui alguns segundos./<br><br>Minha irmã, Lina, foi sequestrada. Pelos Maelstrom. Aqueles ciborgues de merda. Levaram ela e mais uns otários pra fazer Neurodança de terror pros playboys cromados. Ela tá num estúdio de tortura, gravando o medo dela em tempo real.<br><br>Eu não tenho grana. Mas tenho um chip com as coordenadas de um estoque da Militech na Zona Quente. Suprimento médico. Cryo. Droga boa. Vale uma fortuna.<br><br>Quer pegar? A pista começa no 'Hot Club House', o clube onde ela cantava. Descobriram que os Maelstrom tão de olho num mercado negro no subsolo do Centro Velho, o 'MinoMan Store'. Um fixer podre de rico chamado Alejandro Juarez, é o dono dele. Vocês vão ter que arrancar dele onde ele meteu minha irmã.<br><br>Eu só sei que se o Netrunner deles sentir o cheiro de problema, ele frita o cérebro dela num surto.<br><br>O chip é de vocês. Só me traz ela de volta viva, ta?.<br><br>E faz rápido. Porque eu não vou aguentar muito tempo aqui esperando.<br><br>Finger, fora.`;
+export const MESSAGE_SENDER = 'Finger >>';
+export const MESSAGE_TIMESTAMP = '22:47:91 | ENC';
+export const SIDEBAR_NUMBERS = ['4646191', '4150185', '0001384', '3361213'];
+export const GLITCH_EVENT_NAME = 'manual-glitch';

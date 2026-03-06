@@ -1,0 +1,80 @@
+.call-screen {
+  display: block;
+}
+
+.main-layout {
+  display: grid;
+  grid-template-columns: auto 550px;
+  gap: 20px;
+  align-items: start;
+  transition: grid-template-columns 0.3s ease;
+}
+
+.main-layout.show-message {
+  grid-template-columns: auto 550px 450px;
+}
+
+.call-container {
+  width: 100%;
+}
+
+.call-screen-top-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.exit-call-btn {
+  border: 1px solid var(--cp-red);
+  background: transparent;
+  color: var(--cp-red);
+  padding: 7px 11px;
+  font-size: 0.75rem;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.exit-call-btn:hover {
+  background: var(--cp-red);
+  color: #000;
+}
+
+.header-info {
+  margin-bottom: 5px;
+}
+
+.connection-text {
+  color: var(--cp-red);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  letter-spacing: 2px;
+  margin-bottom: 5px;
+}
+
+.caller-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.red-dot-icon {
+  width: 35px;
+  height: 35px;
+  border: 2px solid var(--cp-red);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cp-red);
+  font-weight: bold;
+  font-size: 0.8rem;
+}
+
+.caller-name {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 2.5rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -1px;
+  text-shadow: 0 0 15px rgba(120, 226, 255, 0.4);
+}

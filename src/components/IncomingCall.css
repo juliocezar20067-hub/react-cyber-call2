@@ -1,0 +1,87 @@
+.incoming-screen {
+  position: relative;
+  width: 550px;
+  border: 1px solid var(--cp-red);
+  padding: 40px 30px;
+  background: rgba(0,0,0,0.8);
+  box-shadow: 0 0 40px rgba(255,58,58,0.3);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+}
+
+.incoming-screen::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 3px solid var(--cp-red);
+  clip-path: polygon(0 0, 15% 0, 15% 3%, 85% 3%, 85% 0, 100% 0, 100% 100%, 85% 100%, 85% 97%, 15% 97%, 15% 100%, 0 100%);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.incoming-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 2rem;
+  font-weight: 900;
+  color: var(--cp-red);
+  letter-spacing: 6px;
+  text-shadow: 0 0 15px var(--cp-red);
+}
+
+.incoming-name {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 3.5rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: var(--cp-cyan);
+  text-shadow: 0 0 20px var(--cp-cyan);
+  line-height: 1.2;
+}
+
+.incoming-status {
+  font-size: 1.2rem;
+  color: var(--cp-red);
+  letter-spacing: 2px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.pulse-dot {
+  width: 16px;
+  height: 16px;
+  background: var(--cp-red);
+  border-radius: 50%;
+  box-shadow: 0 0 20px var(--cp-red);
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.answer-btn {
+  background: transparent;
+  border: 2px solid var(--cp-red);
+  color: var(--cp-red);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  padding: 15px 40px;
+  cursor: pointer;
+  clip-path: polygon(0 0, 100% 0, 100% 70%, 92% 100%, 0 100%);
+  transition: 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 4px;
+}
+
+.answer-btn:hover {
+  background: var(--cp-red);
+  color: #000;
+  box-shadow: 0 0 30px var(--cp-red);
+}

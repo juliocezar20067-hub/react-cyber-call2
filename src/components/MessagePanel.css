@@ -1,0 +1,75 @@
+.message-panel {
+  background: rgba(10, 0, 0, 0.85);
+  border: 1px solid var(--cp-red);
+  padding: 20px;
+  box-shadow: 0 0 30px rgba(255,58,58,0.2);
+  backdrop-filter: blur(5px);
+  height: 545px;
+  align-self: start;
+  position: relative;
+  overflow: hidden;
+}
+
+.message-panel::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 2px solid var(--cp-red);
+  clip-path: polygon(0 0, 15% 0, 15% 3%, 85% 3%, 85% 0, 100% 0, 100% 100%, 85% 100%, 85% 97%, 15% 97%, 15% 100%, 0 100%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.message-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.message-sender {
+  color: var(--cp-red);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.2rem;
+  letter-spacing: 2px;
+}
+
+.message-text {
+  font-size: 1.2rem;
+  line-height: 1.5;
+  text-shadow: 0 0 10px var(--cp-cyan);
+  border-left: 2px solid var(--cp-red);
+  padding-left: 15px;
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cp-red) transparent;
+  white-space: pre-wrap;
+}
+
+.message-text::-webkit-scrollbar {
+  width: 4px;
+}
+
+.message-text::-webkit-scrollbar-thumb {
+  background: var(--cp-red);
+}
+
+.message-text::after {
+  content: "_";
+  animation: cursor-blink 0.8s infinite;
+  color: var(--cp-red);
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.message-timestamp {
+  color: var(--cp-red);
+  font-size: 0.9rem;
+  text-align: right;
+  font-family: 'Orbitron', sans-serif;
+}
