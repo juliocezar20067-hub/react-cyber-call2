@@ -22,7 +22,7 @@ export default function NpcsPanel({ onBack, onOpenCall }) {
 
       <div className="npc-card">
         <img
-          src="image-removebg-preview.png"
+          src="public\npcs\LightFinger.png"
           alt={CALLER_NAME}
           className="npc-avatar"
         />

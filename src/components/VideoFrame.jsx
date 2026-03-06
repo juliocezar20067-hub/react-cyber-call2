@@ -13,7 +13,7 @@ export default function VideoFrame() {
       <div className="video-content">
         <VideoOverlay />
         <img
-          src="image-removebg-preview.png"
+          src="public\npcs\LightFinger.png"
           alt="Hands"
           className="character-img"
         />
