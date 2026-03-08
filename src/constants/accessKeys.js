@@ -11,7 +11,7 @@ const RANDOM_PLAYERS = [
 export const PLAYERS = ['404', 'Soren', ...RANDOM_PLAYERS];
 
 export const ACCESS_KEYS = {
-  MASTER_OVERRIDE_2077: { role: 'master', playerId: null },
+  MESTRE_BRISSE: { role: 'master', playerId: null },
   PLAYER_404_KEY: { role: 'player', playerId: '404' },
   SOREN_KEY: { role: 'player', playerId: 'Soren' },
   RANDOM_PLAYER_1_KEY: { role: 'player', playerId: RANDOM_PLAYERS[0] },

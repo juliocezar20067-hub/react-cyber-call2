@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import IncomingCall from './components/IncomingCall';
 import CallScreen from './components/CallScreen';
 import MainMenu from './components/menu/MainMenu';
@@ -15,6 +15,7 @@ import { ACCESS_KEYS, PLAYERS } from './constants/accessKeys';
 import './App.css';
 
 const MISSION_TRACKING_PREFIX = 'rc_mission_tracking_v4';
+const CALL_TRIGGER_PREFIX = 'rc_call_trigger_v1';
 
 function createDefaultTracking() {
   return { active: null, completed: [], denied: [] };
@@ -22,6 +23,10 @@ function createDefaultTracking() {
 
 function trackingStorageKey(campaignId, playerId) {
   return `${MISSION_TRACKING_PREFIX}:${campaignId}:${playerId}`;
+}
+
+function callTriggerStorageKey(campaignId, playerId) {
+  return `${CALL_TRIGGER_PREFIX}:${campaignId}:${playerId}`;
 }
 
 function loadTracking(campaignId, playerId) {
@@ -77,6 +82,7 @@ function App() {
   const [audioReady, setAudioReady] = useState(false);
   const [experienceStarted, setExperienceStarted] = useState(false);
   const [audioProgress, setAudioProgress] = useState({ loaded: 0, total: 1 });
+  const consumedCallTriggerRef = useRef('');
 
   const isSessionReady = Boolean(sessionConfig);
   const currentPlayerId = useMemo(() => {
@@ -141,6 +147,10 @@ function App() {
     if (!sessionConfig) return;
 
     openMenu();
+    if (sessionConfig.role === 'master') {
+      return;
+    }
+
     const timer = setTimeout(() => {
       openIncoming();
     }, 6000);
@@ -149,6 +159,48 @@ function App() {
       clearTimeout(timer);
     };
   }, [sessionConfig, openIncoming, openMenu]);
+
+  useEffect(() => {
+    consumedCallTriggerRef.current = '';
+  }, [sessionConfig?.campaignId, sessionConfig?.playerId, sessionConfig?.role]);
+
+  useEffect(() => {
+    if (!sessionConfig || sessionConfig.role !== 'player' || !sessionConfig.playerId) {
+      return;
+    }
+
+    const triggerKey = callTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
+    const tryOpenIncomingFromTrigger = () => {
+      try {
+        const raw = localStorage.getItem(triggerKey);
+        if (!raw) return;
+
+        const parsed = JSON.parse(raw);
+        const triggerId = parsed?.id ?? '';
+        if (!triggerId || consumedCallTriggerRef.current === triggerId) return;
+
+        consumedCallTriggerRef.current = triggerId;
+        openIncoming();
+      } catch {
+        // Ignore malformed trigger payloads.
+      }
+    };
+
+    const handleStorage = (event) => {
+      if (event.key === triggerKey) {
+        tryOpenIncomingFromTrigger();
+      }
+    };
+
+    const poll = setInterval(tryOpenIncomingFromTrigger, 1200);
+    window.addEventListener('storage', handleStorage);
+    tryOpenIncomingFromTrigger();
+
+    return () => {
+      clearInterval(poll);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [openIncoming, sessionConfig]);
 
   useEffect(() => {
     if (!sessionConfig) return;
@@ -260,6 +312,21 @@ function App() {
     }
   };
 
+  const handleMasterTriggerCall = (targetPlayerId) => {
+    if (!sessionConfig || sessionConfig.role !== 'master' || !targetPlayerId) {
+      return;
+    }
+
+    playSound('button');
+    const payload = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createdAt: Date.now(),
+      source: 'master',
+      targetPlayerId,
+    };
+    localStorage.setItem(callTriggerStorageKey(sessionConfig.campaignId, targetPlayerId), JSON.stringify(payload));
+  };
+
   const currentTracking = currentPlayerId ? trackingByPlayer[currentPlayerId] ?? createDefaultTracking() : createDefaultTracking();
 
   if (!audioReady) {
@@ -353,10 +420,24 @@ function App() {
           selectedPlayer={masterSelectedPlayer}
           onSelectPlayer={setMasterSelectedPlayer}
           allTracking={trackingByPlayer}
+          onTriggerCallForPlayer={handleMasterTriggerCall}
         />
       ) : null}
-      {currentView === 'npcs' ? <NpcsPanel onBack={openMenu} onOpenCall={openCall} /> : null}
-      {currentView === 'locations' ? <LocationsPanel onBack={openMenu} /> : null}
+      {currentView === 'npcs' ? (
+        <NpcsPanel
+          onBack={openMenu}
+          onOpenCall={openCall}
+          campaignId={sessionConfig.campaignId}
+          playerId={currentPlayerId}
+        />
+      ) : null}
+      {currentView === 'locations' ? (
+        <LocationsPanel
+          onBack={openMenu}
+          campaignId={sessionConfig.campaignId}
+          playerId={currentPlayerId}
+        />
+      ) : null}
       {currentView === 'missions' ? (
         <MissionsPanel
           onBack={openMenu}
@@ -365,8 +446,20 @@ function App() {
           deniedMissions={currentTracking.denied}
         />
       ) : null}
-      {currentView === 'documents' ? <DocumentsPanel onBack={openMenu} /> : null}
-      {currentView === 'inventory' ? <InventoryPanel onBack={openMenu} /> : null}
+      {currentView === 'documents' ? (
+        <DocumentsPanel
+          onBack={openMenu}
+          campaignId={sessionConfig.campaignId}
+          playerId={currentPlayerId}
+        />
+      ) : null}
+      {currentView === 'inventory' ? (
+        <InventoryPanel
+          onBack={openMenu}
+          campaignId={sessionConfig.campaignId}
+          playerId={currentPlayerId}
+        />
+      ) : null}
       {currentView === 'characterProfile' ? (
         <CharacterProfilePanel playerId={currentPlayerId} onBack={openMenu} />
       ) : null}

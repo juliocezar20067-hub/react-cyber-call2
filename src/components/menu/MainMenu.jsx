@@ -24,6 +24,7 @@ export default function MainMenu({
   selectedPlayer,
   onSelectPlayer,
   allTracking,
+  onTriggerCallForPlayer,
 }) {
   const [isEditingMission, setIsEditingMission] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -108,6 +109,11 @@ export default function MainMenu({
   const handleMasterSelectPlayer = (player) => {
     playSound('button');
     onSelectPlayer(player);
+  };
+
+  const handleTriggerForSelectedPlayer = () => {
+    if (!selectedPlayer) return;
+    onTriggerCallForPlayer?.(selectedPlayer);
   };
 
   return (
@@ -233,6 +239,9 @@ export default function MainMenu({
                 <div className="active-mission-empty">Nenhuma missao ativa no momento.</div>
               )}
             </div>
+            <button className="master-trigger-btn" onClick={handleTriggerForSelectedPlayer}>
+              DISPARAR LIGACAO PARA {selectedPlayer}
+            </button>
           </div>
         ) : null}
 
