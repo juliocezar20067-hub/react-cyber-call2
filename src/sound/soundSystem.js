@@ -189,3 +189,15 @@ export function stopNarration() {
 export function resetGlitchSoundCounter() {
   glitchSoundPlayCount = 0;
 }
+
+export function onSoundEnded(soundKey, handler) {
+  const audio = getAudio(soundKey);
+  if (!audio || typeof handler !== 'function') {
+    return () => {};
+  }
+
+  audio.addEventListener('ended', handler);
+  return () => {
+    audio.removeEventListener('ended', handler);
+  };
+}

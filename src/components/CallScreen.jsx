@@ -7,7 +7,7 @@ import CallHeader from './call-screen/CallHeader';
 import MainLayout from './call-screen/MainLayout';
 import './CallScreen.css';
 
-export default function CallScreen({ onExit }) {
+export default function CallScreen({ onExit, showMissionDecision, onAcceptMission, onDenyMission, onNarrationStart }) {
   const [showMessage, setShowMessage] = useState(false);
 
   const toggleMessage = () => {
@@ -26,7 +26,13 @@ export default function CallScreen({ onExit }) {
             </div>
             <CallHeader />
             <VideoFrame />
-            <Controls onToggleMessage={toggleMessage} showMessage={showMessage} />
+            <Controls onToggleMessage={toggleMessage} showMessage={showMessage} onNarrationStart={onNarrationStart} />
+            {showMissionDecision ? (
+              <div className="mission-decision-box">
+                <button className="mission-decision-btn accept" onClick={onAcceptMission}>ACEITAR MISSAO</button>
+                <button className="mission-decision-btn deny" onClick={onDenyMission}>NEGAR MISSAO</button>
+              </div>
+            ) : null}
           </div>
         )}
         messagePanel={<MessagePanel />}

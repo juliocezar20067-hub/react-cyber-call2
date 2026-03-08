@@ -42,6 +42,37 @@
   color: #000;
 }
 
+.mission-decision-box {
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+}
+
+.mission-decision-btn {
+  border: 1px solid var(--cp-red);
+  background: transparent;
+  color: var(--cp-red);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  letter-spacing: 1px;
+}
+
+.mission-decision-btn.accept {
+  border-color: #64f59d;
+  color: #64f59d;
+}
+
+.mission-decision-btn.accept:hover {
+  background: #64f59d;
+  color: #000;
+}
+
+.mission-decision-btn.deny:hover {
+  background: var(--cp-red);
+  color: #000;
+}
+
 .header-info {
   margin-bottom: 5px;
 }
@@ -100,5 +131,9 @@
 
   .call-screen-top-actions {
     justify-content: flex-start;
+  }
+
+  .mission-decision-box {
+    flex-direction: column;
   }
 }

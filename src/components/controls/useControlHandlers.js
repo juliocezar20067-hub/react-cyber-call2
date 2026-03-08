@@ -5,7 +5,7 @@ function blurTarget(event) {
   event.target.blur();
 }
 
-export default function useControlHandlers({ onToggleMessage, showMessage }) {
+export default function useControlHandlers({ onToggleMessage, showMessage, onNarrationStart }) {
   const triggerGlitch = () => {
     window.dispatchEvent(new CustomEvent(GLITCH_EVENT_NAME, { detail: { skipSound: true } }));
   };
@@ -17,6 +17,7 @@ export default function useControlHandlers({ onToggleMessage, showMessage }) {
       stopNarration();
     } else {
       playSound('narration');
+      onNarrationStart?.();
     }
     onToggleMessage();
   };

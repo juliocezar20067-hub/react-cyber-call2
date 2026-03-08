@@ -8,3 +8,7 @@ export const MESSAGE_SENDER = 'Finger >>';
 export const MESSAGE_TIMESTAMP = '22:47:91 | ENC';
 export const SIDEBAR_NUMBERS = ['4646191', '4150185', '0001384', '3361213'];
 export const GLITCH_EVENT_NAME = 'manual-glitch';
+export const MISSION_TITLE = 'Operacao: Hotel Esperanca';
+export const MISSION_NPC = 'Light Finger';
+export const MISSION_SUMMARY = 'Resgatar Lina antes que o Netrunner inimigo detecte a infiltração.';
+export const MISSION_CLUE = 'Pista: interrogue Alejandro Juarez no MinoMan Store para localizar o subsolo do hotel.';
