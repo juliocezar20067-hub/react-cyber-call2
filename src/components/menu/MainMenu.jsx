@@ -25,11 +25,15 @@ export default function MainMenu({
   onSelectPlayer,
   allTracking,
   onTriggerCallForPlayer,
+  onTriggerImageForPlayer,
 }) {
   const [isEditingMission, setIsEditingMission] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editSummary, setEditSummary] = useState('');
   const [editClue, setEditClue] = useState('');
+  const [showImageTriggerForm, setShowImageTriggerForm] = useState(false);
+  const [imageUrlToTrigger, setImageUrlToTrigger] = useState('');
+  const [imageTitleToTrigger, setImageTitleToTrigger] = useState('');
 
   useEffect(() => {
     if (!activeMission) {
@@ -114,6 +118,24 @@ export default function MainMenu({
   const handleTriggerForSelectedPlayer = () => {
     if (!selectedPlayer) return;
     onTriggerCallForPlayer?.(selectedPlayer);
+  };
+
+  const handleTriggerImageForSelectedPlayer = () => {
+    if (!selectedPlayer || !imageUrlToTrigger.trim()) return;
+    playSound('button');
+    onTriggerImageForPlayer?.({
+      targetPlayerId: selectedPlayer,
+      imageUrl: imageUrlToTrigger.trim(),
+      title: imageTitleToTrigger.trim(),
+    });
+    setImageUrlToTrigger('');
+    setImageTitleToTrigger('');
+    setShowImageTriggerForm(false);
+  };
+
+  const handleToggleImageForm = () => {
+    playSound('button');
+    setShowImageTriggerForm((prev) => !prev);
   };
 
   return (
@@ -242,6 +264,36 @@ export default function MainMenu({
             <button className="master-trigger-btn" onClick={handleTriggerForSelectedPlayer}>
               DISPARAR LIGACAO PARA {selectedPlayer}
             </button>
+            <button className="master-trigger-btn" onClick={handleToggleImageForm}>
+              DISPARAR IMAGEM
+            </button>
+            {showImageTriggerForm ? (
+              <div className="master-image-overlay" onClick={handleToggleImageForm}>
+                <div className="master-image-modal" onClick={(event) => event.stopPropagation()}>
+                  <div className="master-image-title">Disparar Imagem</div>
+                  <input
+                    className="entry-input"
+                    placeholder="Link da imagem para o player"
+                    value={imageUrlToTrigger}
+                    onChange={(event) => setImageUrlToTrigger(event.target.value)}
+                  />
+                  <input
+                    className="entry-input"
+                    placeholder="Titulo (opcional)"
+                    value={imageTitleToTrigger}
+                    onChange={(event) => setImageTitleToTrigger(event.target.value)}
+                  />
+                  <div className="master-image-trigger-actions">
+                    <button className="master-trigger-btn" onClick={handleTriggerImageForSelectedPlayer}>
+                      ENVIAR PARA {selectedPlayer}
+                    </button>
+                    <button className="master-trigger-btn secondary" onClick={handleToggleImageForm}>
+                      CANCELAR
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

@@ -106,6 +106,55 @@
   font-weight: 600;
 }
 
+.master-image-trigger-row {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid rgba(255, 58, 58, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 8px;
+}
+
+.master-image-trigger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.master-trigger-btn.secondary {
+  border-color: rgba(120, 226, 255, 0.5);
+  background: rgba(120, 226, 255, 0.08);
+}
+
+.master-image-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 260;
+  padding: 12px;
+}
+
+.master-image-modal {
+  width: min(480px, 95vw);
+  border: 1px solid rgba(255, 58, 58, 0.55);
+  background: rgba(5, 5, 5, 0.96);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.master-image-title {
+  color: var(--cp-red);
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
 .active-mission-block {
   border-left: 3px solid var(--cp-red);
   background: rgba(255, 58, 58, 0.08);

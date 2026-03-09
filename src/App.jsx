@@ -16,6 +16,7 @@ import './App.css';
 
 const MISSION_TRACKING_PREFIX = 'rc_mission_tracking_v4';
 const CALL_TRIGGER_PREFIX = 'rc_call_trigger_v1';
+const IMAGE_TRIGGER_PREFIX = 'rc_image_trigger_v1';
 
 function createDefaultTracking() {
   return { active: null, completed: [], denied: [] };
@@ -27,6 +28,10 @@ function trackingStorageKey(campaignId, playerId) {
 
 function callTriggerStorageKey(campaignId, playerId) {
   return `${CALL_TRIGGER_PREFIX}:${campaignId}:${playerId}`;
+}
+
+function imageTriggerStorageKey(campaignId, playerId) {
+  return `${IMAGE_TRIGGER_PREFIX}:${campaignId}:${playerId}`;
 }
 
 function loadTracking(campaignId, playerId) {
@@ -82,7 +87,9 @@ function App() {
   const [audioReady, setAudioReady] = useState(false);
   const [experienceStarted, setExperienceStarted] = useState(false);
   const [audioProgress, setAudioProgress] = useState({ loaded: 0, total: 1 });
+  const [imagePopup, setImagePopup] = useState(null);
   const consumedCallTriggerRef = useRef('');
+  const consumedImageTriggerRef = useRef('');
 
   const isSessionReady = Boolean(sessionConfig);
   const currentPlayerId = useMemo(() => {
@@ -152,16 +159,23 @@ function App() {
   useEffect(() => {
     if (!sessionConfig || sessionConfig.role !== 'player' || !sessionConfig.playerId) {
       consumedCallTriggerRef.current = '';
+      consumedImageTriggerRef.current = '';
       return;
     }
 
-    const key = callTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
+    const callKey = callTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
+    const imageKey = imageTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
     try {
-      const raw = localStorage.getItem(key);
-      const parsed = raw ? JSON.parse(raw) : null;
-      consumedCallTriggerRef.current = parsed?.id ?? '';
+      const callRaw = localStorage.getItem(callKey);
+      const callParsed = callRaw ? JSON.parse(callRaw) : null;
+      consumedCallTriggerRef.current = callParsed?.id ?? '';
+
+      const imageRaw = localStorage.getItem(imageKey);
+      const imageParsed = imageRaw ? JSON.parse(imageRaw) : null;
+      consumedImageTriggerRef.current = imageParsed?.id ?? '';
     } catch {
       consumedCallTriggerRef.current = '';
+      consumedImageTriggerRef.current = '';
     }
   }, [sessionConfig]);
 
@@ -170,10 +184,11 @@ function App() {
       return;
     }
 
-    const triggerKey = callTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
+    const callTriggerKey = callTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
+    const imageTriggerKey = imageTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
     const tryOpenIncomingFromTrigger = () => {
       try {
-        const raw = localStorage.getItem(triggerKey);
+        const raw = localStorage.getItem(callTriggerKey);
         if (!raw) return;
 
         const parsed = JSON.parse(raw);
@@ -187,15 +202,43 @@ function App() {
       }
     };
 
-    const handleStorage = (event) => {
-      if (event.key === triggerKey) {
-        tryOpenIncomingFromTrigger();
+    const tryOpenImageFromTrigger = () => {
+      try {
+        const raw = localStorage.getItem(imageTriggerKey);
+        if (!raw) return;
+
+        const parsed = JSON.parse(raw);
+        const triggerId = parsed?.id ?? '';
+        const imageUrl = parsed?.imageUrl?.trim?.() ?? '';
+        if (!triggerId || consumedImageTriggerRef.current === triggerId || !imageUrl) return;
+
+        consumedImageTriggerRef.current = triggerId;
+        setImagePopup({
+          title: parsed?.title?.trim?.() || 'TRANSMISSAO VISUAL',
+          imageUrl,
+          source: parsed?.source ?? 'master',
+        });
+      } catch {
+        // Ignore malformed trigger payloads.
       }
     };
 
-    const poll = setInterval(tryOpenIncomingFromTrigger, 1200);
+    const handleStorage = (event) => {
+      if (event.key === callTriggerKey) {
+        tryOpenIncomingFromTrigger();
+      }
+      if (event.key === imageTriggerKey) {
+        tryOpenImageFromTrigger();
+      }
+    };
+
+    const poll = setInterval(() => {
+      tryOpenIncomingFromTrigger();
+      tryOpenImageFromTrigger();
+    }, 1200);
     window.addEventListener('storage', handleStorage);
     tryOpenIncomingFromTrigger();
+    tryOpenImageFromTrigger();
 
     return () => {
       clearInterval(poll);
@@ -328,6 +371,27 @@ function App() {
     localStorage.setItem(callTriggerStorageKey(sessionConfig.campaignId, targetPlayerId), JSON.stringify(payload));
   };
 
+  const handleMasterTriggerImage = ({ targetPlayerId, imageUrl, title }) => {
+    if (!sessionConfig || sessionConfig.role !== 'master' || !targetPlayerId || !imageUrl?.trim()) {
+      return;
+    }
+
+    const payload = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createdAt: Date.now(),
+      source: 'master',
+      targetPlayerId,
+      imageUrl: imageUrl.trim(),
+      title: title?.trim() || '',
+    };
+    localStorage.setItem(imageTriggerStorageKey(sessionConfig.campaignId, targetPlayerId), JSON.stringify(payload));
+  };
+
+  const handleCloseImagePopup = () => {
+    playSound('button');
+    setImagePopup(null);
+  };
+
   const currentTracking = currentPlayerId ? trackingByPlayer[currentPlayerId] ?? createDefaultTracking() : createDefaultTracking();
 
   if (!audioReady) {
@@ -422,6 +486,7 @@ function App() {
           onSelectPlayer={setMasterSelectedPlayer}
           allTracking={trackingByPlayer}
           onTriggerCallForPlayer={handleMasterTriggerCall}
+          onTriggerImageForPlayer={handleMasterTriggerImage}
         />
       ) : null}
       {currentView === 'npcs' ? (
@@ -463,6 +528,19 @@ function App() {
       ) : null}
       {currentView === 'characterProfile' ? (
         <CharacterProfilePanel playerId={currentPlayerId} onBack={openMenu} />
+      ) : null}
+      {imagePopup ? (
+        <div className="image-popup-overlay" onClick={handleCloseImagePopup}>
+          <div className="image-popup-card" onClick={(event) => event.stopPropagation()}>
+            <div className="image-popup-header">
+              <div className="image-popup-title">{imagePopup.title}</div>
+              <button className="image-popup-close" onClick={handleCloseImagePopup}>
+                FECHAR
+              </button>
+            </div>
+            <img src={imagePopup.imageUrl} alt={imagePopup.title} className="image-popup-image" />
+          </div>
+        </div>
       ) : null}
     </div>
   );

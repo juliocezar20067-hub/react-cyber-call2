@@ -142,6 +142,59 @@ body::before {
   font-size: 0.85rem;
 }
 
+.image-popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 220;
+  padding: 14px;
+}
+
+.image-popup-card {
+  width: min(900px, 96vw);
+  max-height: 92vh;
+  border: 1px solid rgba(120, 226, 255, 0.5);
+  background: rgba(4, 8, 10, 0.95);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.image-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.image-popup-title {
+  color: var(--cp-cyan);
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.image-popup-close {
+  border: 1px solid rgba(255, 58, 58, 0.6);
+  background: transparent;
+  color: var(--cp-cyan);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.image-popup-image {
+  width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+  border: 1px solid rgba(120, 226, 255, 0.35);
+  background: #020202;
+}
+
 @media (max-width: 768px) {
   body {
     align-items: center;
@@ -159,4 +212,5 @@ body::before {
     font-size: 0.95rem;
     letter-spacing: 2px;
   }
+
 }
