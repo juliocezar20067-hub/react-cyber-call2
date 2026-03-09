@@ -1,14 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CALLER_NAME, CONNECTION_CODE } from '../../constants/ui';
 import { playSound } from '../../sound/soundSystem';
+import { getStoredState, setStoredState } from '../../lib/stateStorage';
 import CharacterSheet from './CharacterSheet';
 import './Menu.css';
-
-const MASTER_IMAGE_LIBRARY_PREFIX = 'rc_master_image_library_v1';
-
-function masterImageLibraryStorageKey(campaignId) {
-  return `${MASTER_IMAGE_LIBRARY_PREFIX}:${campaignId}`;
-}
 
 export default function MainMenu({
   onOpenLocations,
@@ -64,25 +59,36 @@ export default function MainMenu({
       return;
     }
 
-    try {
-      const raw = localStorage.getItem(masterImageLibraryStorageKey(campaignId));
-      if (!raw) {
+    let cancelled = false;
+    getStoredState({
+      campaignId,
+      playerId: 'master',
+      scope: 'master_image_library',
+      fallback: [],
+    }).then((data) => {
+      if (cancelled) return;
+      if (!Array.isArray(data)) {
         setSavedImages([]);
         setImagesHydrated(true);
-        return;
+      } else {
+        setSavedImages(data);
+        setImagesHydrated(true);
       }
-      const parsed = JSON.parse(raw);
-      setSavedImages(Array.isArray(parsed) ? parsed : []);
-      setImagesHydrated(true);
-    } catch {
-      setSavedImages([]);
-      setImagesHydrated(true);
-    }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [campaignId, role]);
 
   useEffect(() => {
     if (role !== 'master' || !campaignId || !imagesHydrated) return;
-    localStorage.setItem(masterImageLibraryStorageKey(campaignId), JSON.stringify(savedImages));
+    setStoredState({
+      campaignId,
+      playerId: 'master',
+      scope: 'master_image_library',
+      data: savedImages,
+    });
   }, [campaignId, imagesHydrated, role, savedImages]);
 
   const globalActiveList = useMemo(() => {

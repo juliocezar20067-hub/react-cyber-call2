@@ -1,10 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-
-const PANEL_ENTRIES_PREFIX = 'rc_panel_entries_v1';
-
-function createStorageKey(campaignId, playerId, panelId) {
-  return `${PANEL_ENTRIES_PREFIX}:${campaignId}:${playerId}:${panelId}`;
-}
+import { useEffect, useRef, useState } from 'react';
+import { getStoredState, setStoredState } from '../lib/stateStorage';
 
 function normalizeEntries(value, fallback) {
   if (!Array.isArray(value)) {
@@ -22,42 +17,45 @@ function normalizeEntries(value, fallback) {
 export default function usePanelEntries({ campaignId, playerId, panelId, defaultEntries = [] }) {
   const [entries, setEntries] = useState([]);
   const defaultEntriesRef = useRef(defaultEntries);
-
-  const storageKey = useMemo(() => {
-    if (!campaignId || !playerId || !panelId) {
-      return null;
-    }
-    return createStorageKey(campaignId, playerId, panelId);
-  }, [campaignId, panelId, playerId]);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     defaultEntriesRef.current = defaultEntries;
   }, [defaultEntries]);
 
   useEffect(() => {
-    if (!storageKey) {
+    if (!campaignId || !playerId || !panelId) {
       setEntries([]);
+      setHydrated(false);
       return;
     }
 
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) {
-        setEntries(defaultEntriesRef.current);
-        return;
-      }
+    let cancelled = false;
+    getStoredState({
+      campaignId,
+      playerId,
+      scope: `panel_entries:${panelId}`,
+      fallback: defaultEntriesRef.current,
+    }).then((data) => {
+      if (cancelled) return;
+      setEntries(normalizeEntries(data, defaultEntriesRef.current));
+      setHydrated(true);
+    });
 
-      const parsed = JSON.parse(raw);
-      setEntries(normalizeEntries(parsed, defaultEntriesRef.current));
-    } catch {
-      setEntries(defaultEntriesRef.current);
-    }
-  }, [storageKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignId, panelId, playerId]);
 
   useEffect(() => {
-    if (!storageKey) return;
-    localStorage.setItem(storageKey, JSON.stringify(entries));
-  }, [entries, storageKey]);
+    if (!campaignId || !playerId || !panelId || !hydrated) return;
+    setStoredState({
+      campaignId,
+      playerId,
+      scope: `panel_entries:${panelId}`,
+      data: entries,
+    });
+  }, [campaignId, entries, hydrated, panelId, playerId]);
 
   const addEntry = (entry) => {
     const prepared = {

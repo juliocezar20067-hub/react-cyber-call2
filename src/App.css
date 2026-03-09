@@ -114,6 +114,15 @@ body::before {
   letter-spacing: 2px;
 }
 
+.session-cloud-indicator {
+  border: 1px solid rgba(120, 226, 255, 0.35);
+  background: rgba(120, 226, 255, 0.08);
+  color: var(--cp-cyan);
+  padding: 6px 8px;
+  font-size: 0.78rem;
+  letter-spacing: 0.5px;
+}
+
 .session-label {
   display: flex;
   flex-direction: column;
@@ -135,6 +144,30 @@ body::before {
   padding: 10px 12px;
   cursor: pointer;
   font-weight: 700;
+}
+
+.session-test-btn {
+  border: 1px solid rgba(120, 226, 255, 0.5);
+  background: rgba(120, 226, 255, 0.1);
+  color: var(--cp-cyan);
+  padding: 9px 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.session-test-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.session-cloud-result {
+  border: 1px solid rgba(120, 226, 255, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--cp-cyan);
+  padding: 7px 8px;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .session-error {

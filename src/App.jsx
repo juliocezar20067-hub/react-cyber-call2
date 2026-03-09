@@ -12,18 +12,14 @@ import useCallFlow from './hooks/useCallFlow';
 import { initAudioUnlock, onSoundEnded, playSound, preloadAllSounds, stopNarration, stopSound } from './sound/soundSystem';
 import { MISSION_CLUE, MISSION_NPC, MISSION_SUMMARY, MISSION_TITLE } from './constants/ui';
 import { ACCESS_KEYS, PLAYERS } from './constants/accessKeys';
+import { getStoredState, isCloudConfigured, setStoredState, testCloudConnection } from './lib/stateStorage';
 import './App.css';
 
-const MISSION_TRACKING_PREFIX = 'rc_mission_tracking_v4';
 const CALL_TRIGGER_PREFIX = 'rc_call_trigger_v1';
 const IMAGE_TRIGGER_PREFIX = 'rc_image_trigger_v1';
 
 function createDefaultTracking() {
   return { active: null, completed: [], denied: [] };
-}
-
-function trackingStorageKey(campaignId, playerId) {
-  return `${MISSION_TRACKING_PREFIX}:${campaignId}:${playerId}`;
 }
 
 function callTriggerStorageKey(campaignId, playerId) {
@@ -32,22 +28,6 @@ function callTriggerStorageKey(campaignId, playerId) {
 
 function imageTriggerStorageKey(campaignId, playerId) {
   return `${IMAGE_TRIGGER_PREFIX}:${campaignId}:${playerId}`;
-}
-
-function loadTracking(campaignId, playerId) {
-  try {
-    const raw = localStorage.getItem(trackingStorageKey(campaignId, playerId));
-    if (!raw) return createDefaultTracking();
-
-    const parsed = JSON.parse(raw);
-    return {
-      active: parsed?.active ?? null,
-      completed: Array.isArray(parsed?.completed) ? parsed.completed : [],
-      denied: Array.isArray(parsed?.denied) ? parsed.denied : [],
-    };
-  } catch {
-    return createDefaultTracking();
-  }
 }
 
 function createMissionPayload() {
@@ -80,6 +60,8 @@ function App() {
   const [loginError, setLoginError] = useState('');
   const [sessionConfig, setSessionConfig] = useState(null);
   const [masterSelectedPlayer, setMasterSelectedPlayer] = useState(PLAYERS[0]);
+  const [cloudTestResult, setCloudTestResult] = useState('');
+  const [isTestingCloud, setIsTestingCloud] = useState(false);
 
   const [trackingByPlayer, setTrackingByPlayer] = useState({});
   const [showMissionDecision, setShowMissionDecision] = useState(false);
@@ -88,6 +70,7 @@ function App() {
   const [experienceStarted, setExperienceStarted] = useState(false);
   const [audioProgress, setAudioProgress] = useState({ loaded: 0, total: 1 });
   const [imagePopup, setImagePopup] = useState(null);
+  const [trackingHydrated, setTrackingHydrated] = useState(false);
   const consumedCallTriggerRef = useRef('');
   const consumedImageTriggerRef = useRef('');
 
@@ -142,12 +125,36 @@ function App() {
   useEffect(() => {
     if (!sessionConfig) return;
 
+    let cancelled = false;
+    setTrackingHydrated(false);
     const loaded = {};
     const playersToLoad = sessionConfig.role === 'master' ? PLAYERS : [sessionConfig.playerId];
-    for (const playerId of playersToLoad) {
-      loaded[playerId] = loadTracking(sessionConfig.campaignId, playerId);
-    }
-    setTrackingByPlayer(loaded);
+    Promise.all(
+      playersToLoad.map(async (playerId) => {
+        const state = await getStoredState({
+          campaignId: sessionConfig.campaignId,
+          playerId,
+          scope: 'mission_tracking',
+          fallback: createDefaultTracking(),
+        });
+        return [playerId, state];
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      for (const [playerId, state] of entries) {
+        loaded[playerId] = {
+          active: state?.active ?? null,
+          completed: Array.isArray(state?.completed) ? state.completed : [],
+          denied: Array.isArray(state?.denied) ? state.denied : [],
+        };
+      }
+      setTrackingByPlayer(loaded);
+      setTrackingHydrated(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [sessionConfig]);
 
   useEffect(() => {
@@ -247,13 +254,17 @@ function App() {
   }, [openIncoming, sessionConfig]);
 
   useEffect(() => {
-    if (!sessionConfig) return;
+    if (!sessionConfig || !trackingHydrated) return;
 
     for (const [playerId, tracking] of Object.entries(trackingByPlayer)) {
-      const key = trackingStorageKey(sessionConfig.campaignId, playerId);
-      localStorage.setItem(key, JSON.stringify(tracking));
+      setStoredState({
+        campaignId: sessionConfig.campaignId,
+        playerId,
+        scope: 'mission_tracking',
+        data: tracking,
+      });
     }
-  }, [sessionConfig, trackingByPlayer]);
+  }, [sessionConfig, trackingByPlayer, trackingHydrated]);
 
   useEffect(() => {
     const off = onSoundEnded('narration', () => {
@@ -356,6 +367,14 @@ function App() {
     }
   };
 
+  const handleTestCloud = async () => {
+    setIsTestingCloud(true);
+    setCloudTestResult('Testando conexao...');
+    const result = await testCloudConnection();
+    setCloudTestResult(result.ok ? `OK: ${result.message}` : `ERRO: ${result.message}`);
+    setIsTestingCloud(false);
+  };
+
   const handleMasterTriggerCall = (targetPlayerId) => {
     if (!sessionConfig || sessionConfig.role !== 'master' || !targetPlayerId) {
       return;
@@ -426,6 +445,13 @@ function App() {
       <div className="app loading-screen">
         <div className="session-card">
           <div className="session-title">ACESSO AO TERMINAL</div>
+          <div className="session-cloud-indicator">
+            Banco: {isCloudConfigured() ? 'SUPABASE CONECTADO' : 'LOCAL (sem Supabase)'}
+          </div>
+          <button className="session-test-btn" onClick={handleTestCloud} disabled={isTestingCloud}>
+            {isTestingCloud ? 'TESTANDO...' : 'TESTAR CONEXAO'}
+          </button>
+          {cloudTestResult ? <div className="session-cloud-result">{cloudTestResult}</div> : null}
           <label className="session-label">
             Campanha
             <input

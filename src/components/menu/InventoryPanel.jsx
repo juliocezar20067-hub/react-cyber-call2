@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { playSound } from '../../sound/soundSystem';
+import { getStoredState, setStoredState } from '../../lib/stateStorage';
 import './Menu.css';
 
 const CELL_SIZE = 46;
 const MIN_GRID = 3;
 const MAX_GRID = 16;
-const INVENTORY_STORAGE_PREFIX = 'rc_inventory_grid_v1';
-
-function storageKey(campaignId, playerId) {
-  return `${INVENTORY_STORAGE_PREFIX}:${campaignId}:${playerId}`;
-}
-
 function itemDims(item, rotated = item.rotated) {
   return rotated ? { w: item.h, h: item.w } : { w: item.w, h: item.h };
 }
@@ -57,25 +52,23 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
   const dragPreviewRef = useRef(null);
   const [hydrated, setHydrated] = useState(false);
 
-  const storage = useMemo(() => {
-    if (!campaignId || !playerId) return null;
-    return storageKey(campaignId, playerId);
-  }, [campaignId, playerId]);
+  const scope = useMemo(() => 'inventory_grid', []);
 
   useEffect(() => {
     dragPreviewRef.current = dragPreview;
   }, [dragPreview]);
 
   useEffect(() => {
-    if (!storage) return;
-    try {
-      const raw = localStorage.getItem(storage);
-      if (!raw) {
-        setHydrated(true);
-        return;
-      }
+    if (!campaignId || !playerId) return;
 
-      const parsed = JSON.parse(raw);
+    let cancelled = false;
+    getStoredState({
+      campaignId,
+      playerId,
+      scope,
+      fallback: null,
+    }).then((parsed) => {
+      if (cancelled) return;
       const cols = Number(parsed?.gridCols);
       const rows = Number(parsed?.gridRows);
       const loadedItems = Array.isArray(parsed?.items) ? parsed.items : [];
@@ -101,22 +94,26 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
         }))
       );
       setHydrated(true);
-    } catch {
-      setHydrated(true);
-    }
-  }, [storage]);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignId, playerId, scope]);
 
   useEffect(() => {
-    if (!storage || !hydrated) return;
-    localStorage.setItem(
-      storage,
-      JSON.stringify({
+    if (!campaignId || !playerId || !hydrated) return;
+    setStoredState({
+      campaignId,
+      playerId,
+      scope,
+      data: {
         gridCols,
         gridRows,
         items,
-      })
-    );
-  }, [gridCols, gridRows, hydrated, items, storage]);
+      },
+    });
+  }, [campaignId, gridCols, gridRows, hydrated, items, playerId, scope]);
 
   useEffect(() => {
     if (!dragPreview) return undefined;
