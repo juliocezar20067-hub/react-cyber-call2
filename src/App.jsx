@@ -150,8 +150,20 @@ function App() {
   }, [sessionConfig, openMenu]);
 
   useEffect(() => {
-    consumedCallTriggerRef.current = '';
-  }, [sessionConfig?.campaignId, sessionConfig?.playerId, sessionConfig?.role]);
+    if (!sessionConfig || sessionConfig.role !== 'player' || !sessionConfig.playerId) {
+      consumedCallTriggerRef.current = '';
+      return;
+    }
+
+    const key = callTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : null;
+      consumedCallTriggerRef.current = parsed?.id ?? '';
+    } catch {
+      consumedCallTriggerRef.current = '';
+    }
+  }, [sessionConfig]);
 
   useEffect(() => {
     if (!sessionConfig || sessionConfig.role !== 'player' || !sessionConfig.playerId) {
