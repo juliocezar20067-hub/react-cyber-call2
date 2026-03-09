@@ -11,12 +11,12 @@ import CharacterProfilePanel from './components/menu/CharacterProfilePanel';
 import useCallFlow from './hooks/useCallFlow';
 import { initAudioUnlock, onSoundEnded, playSound, preloadAllSounds, stopNarration, stopSound } from './sound/soundSystem';
 import { MISSION_CLUE, MISSION_NPC, MISSION_SUMMARY, MISSION_TITLE } from './constants/ui';
-import { ACCESS_KEYS, PLAYERS } from './constants/accessKeys';
 import { getStoredState, isCloudConfigured, setStoredState, testCloudConnection } from './lib/stateStorage';
 import './App.css';
 
 const CALL_TRIGGER_PREFIX = 'rc_call_trigger_v1';
 const IMAGE_TRIGGER_PREFIX = 'rc_image_trigger_v1';
+const CAMPAIGN_AUTH_SCOPE = 'campaign_auth_v1';
 
 function createDefaultTracking() {
   return { active: null, completed: [], denied: [] };
@@ -39,6 +39,24 @@ function createMissionPayload() {
   };
 }
 
+async function loadCampaignAuth(campaignId) {
+  return getStoredState({
+    campaignId,
+    playerId: '__system__',
+    scope: CAMPAIGN_AUTH_SCOPE,
+    fallback: null,
+  });
+}
+
+function saveCampaignAuth(campaignId, data) {
+  setStoredState({
+    campaignId,
+    playerId: '__system__',
+    scope: CAMPAIGN_AUTH_SCOPE,
+    data,
+  });
+}
+
 function App() {
   const {
     currentView,
@@ -56,12 +74,22 @@ function App() {
   } = useCallFlow();
 
   const [campaignIdInput, setCampaignIdInput] = useState('nightcity-main');
-  const [accessKeyInput, setAccessKeyInput] = useState('');
+  const [loginUserInput, setLoginUserInput] = useState('');
+  const [loginPasswordInput, setLoginPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [sessionConfig, setSessionConfig] = useState(null);
-  const [masterSelectedPlayer, setMasterSelectedPlayer] = useState(PLAYERS[0]);
+  const [campaignPlayers, setCampaignPlayers] = useState([]);
+  const [masterSelectedPlayer, setMasterSelectedPlayer] = useState('');
   const [cloudTestResult, setCloudTestResult] = useState('');
   const [isTestingCloud, setIsTestingCloud] = useState(false);
+  const [showCreateCampaign, setShowCreateCampaign] = useState(false);
+  const [createCampaignId, setCreateCampaignId] = useState('nightcity-main');
+  const [createMasterUser, setCreateMasterUser] = useState('mestre');
+  const [createMasterPassword, setCreateMasterPassword] = useState('');
+  const [createPlayers, setCreatePlayers] = useState([
+    { name: '404', password: '' },
+    { name: 'Soren', password: '' },
+  ]);
 
   const [trackingByPlayer, setTrackingByPlayer] = useState({});
   const [showMissionDecision, setShowMissionDecision] = useState(false);
@@ -79,6 +107,17 @@ function App() {
     if (!sessionConfig) return null;
     return sessionConfig.role === 'master' ? masterSelectedPlayer : sessionConfig.playerId;
   }, [masterSelectedPlayer, sessionConfig]);
+
+  useEffect(() => {
+    if (sessionConfig?.role !== 'master') return;
+    if (campaignPlayers.length === 0) {
+      setMasterSelectedPlayer('');
+      return;
+    }
+    if (!campaignPlayers.includes(masterSelectedPlayer)) {
+      setMasterSelectedPlayer(campaignPlayers[0]);
+    }
+  }, [campaignPlayers, masterSelectedPlayer, sessionConfig]);
 
   useEffect(() => {
     const setViewportHeight = () => {
@@ -128,7 +167,7 @@ function App() {
     let cancelled = false;
     setTrackingHydrated(false);
     const loaded = {};
-    const playersToLoad = sessionConfig.role === 'master' ? PLAYERS : [sessionConfig.playerId];
+    const playersToLoad = sessionConfig.role === 'master' ? campaignPlayers : [sessionConfig.playerId];
     Promise.all(
       playersToLoad.map(async (playerId) => {
         const state = await getStoredState({
@@ -155,7 +194,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [sessionConfig]);
+  }, [campaignPlayers, sessionConfig]);
 
   useEffect(() => {
     if (!sessionConfig) return;
@@ -346,25 +385,104 @@ function App() {
     setShowMissionDecision(false);
   };
 
-  const handleStartSession = () => {
-    const key = accessKeyInput.trim();
-    const access = ACCESS_KEYS[key];
+  const handleStartSession = async () => {
+    const campaignId = campaignIdInput.trim() || 'nightcity-main';
+    const username = loginUserInput.trim();
+    const password = loginPasswordInput;
 
-    if (!access) {
-      setLoginError('Chave invalida.');
+    if (!username || !password) {
+      setLoginError('Informe usuario e senha.');
       return;
     }
 
-    const campaignId = campaignIdInput.trim() || 'nightcity-main';
+    const auth = await loadCampaignAuth(campaignId);
+    if (!auth?.master?.username || !auth?.master?.password) {
+      setLoginError('Campanha sem configuracao de acesso. Crie a campanha primeiro.');
+      return;
+    }
+
+    const players = Array.isArray(auth.players) ? auth.players.map((player) => player.id).filter(Boolean) : [];
+    setCampaignPlayers(players);
     setLoginError('');
+
+    if (username === auth.master.username && password === auth.master.password) {
+      setSessionConfig({
+        campaignId,
+        role: 'master',
+        playerId: null,
+      });
+      setMasterSelectedPlayer(players[0] ?? '');
+      return;
+    }
+
+    const matchedPlayer = (auth.players ?? []).find((player) => player.id === username && player.password === password);
+    if (!matchedPlayer) {
+      setLoginError('Usuario ou senha invalidos.');
+      return;
+    }
+
     setSessionConfig({
       campaignId,
-      role: access.role,
-      playerId: access.playerId,
+      role: 'player',
+      playerId: matchedPlayer.id,
     });
-    if (access.role === 'master') {
-      setMasterSelectedPlayer(PLAYERS[0]);
+  };
+
+  const handleCreatePlayerChange = (index, field, value) => {
+    setCreatePlayers((prev) =>
+      prev.map((player, playerIndex) => (playerIndex === index ? { ...player, [field]: value } : player))
+    );
+  };
+
+  const handleAddCreatePlayer = () => {
+    setCreatePlayers((prev) => [...prev, { name: '', password: '' }]);
+  };
+
+  const handleRemoveCreatePlayer = (index) => {
+    setCreatePlayers((prev) => prev.filter((_, playerIndex) => playerIndex !== index));
+  };
+
+  const handleCreateCampaign = () => {
+    const campaignId = createCampaignId.trim();
+    const masterUser = createMasterUser.trim();
+    const masterPass = createMasterPassword;
+    const normalizedPlayers = createPlayers
+      .map((player) => ({ id: player.name.trim(), password: player.password }))
+      .filter((player) => player.id);
+
+    const duplicateNames = new Set();
+    for (const player of normalizedPlayers) {
+      if (duplicateNames.has(player.id)) {
+        setLoginError('Nao pode repetir nome de player na campanha.');
+        return;
+      }
+      duplicateNames.add(player.id);
     }
+
+    if (!campaignId || !masterUser || !masterPass) {
+      setLoginError('Preencha campanha, usuario mestre e senha mestre.');
+      return;
+    }
+
+    const hasPlayerWithoutPassword = normalizedPlayers.some((player) => !player.password);
+    if (hasPlayerWithoutPassword) {
+      setLoginError('Todo player precisa de senha.');
+      return;
+    }
+
+    saveCampaignAuth(campaignId, {
+      master: { username: masterUser, password: masterPass },
+      players: normalizedPlayers,
+      updatedAt: Date.now(),
+    });
+
+    setCampaignIdInput(campaignId);
+    setLoginUserInput(masterUser);
+    setLoginPasswordInput(masterPass);
+    setCampaignPlayers(normalizedPlayers.map((player) => player.id));
+    setShowCreateCampaign(false);
+    setLoginError('');
+    playSound('button');
   };
 
   const handleTestCloud = async () => {
@@ -461,18 +579,90 @@ function App() {
             />
           </label>
           <label className="session-label">
-            Key de acesso
+            Usuario
             <input
               className="session-input"
-              value={accessKeyInput}
-              onChange={(event) => setAccessKeyInput(event.target.value)}
-              placeholder="Ex: PLAYER_404_KEY"
+              value={loginUserInput}
+              onChange={(event) => setLoginUserInput(event.target.value)}
+              placeholder="Ex: mestre, 404, Soren"
+            />
+          </label>
+          <label className="session-label">
+            Senha
+            <input
+              className="session-input"
+              type="password"
+              value={loginPasswordInput}
+              onChange={(event) => setLoginPasswordInput(event.target.value)}
+              placeholder="Senha do usuario"
             />
           </label>
           {loginError ? <div className="session-error">{loginError}</div> : null}
-          <button className="session-start-btn" onClick={handleStartSession}>
+          <button className="session-start-btn" onClick={() => void handleStartSession()}>
             ENTRAR NO TERMINAL
           </button>
+          <button className="session-test-btn" onClick={() => setShowCreateCampaign((prev) => !prev)}>
+            {showCreateCampaign ? 'FECHAR CRIAR CAMPANHA' : 'CRIAR CAMPANHA'}
+          </button>
+          {showCreateCampaign ? (
+            <div className="campaign-create-box">
+              <div className="campaign-create-title">Nova Campanha</div>
+              <label className="session-label">
+                ID da campanha
+                <input
+                  className="session-input"
+                  value={createCampaignId}
+                  onChange={(event) => setCreateCampaignId(event.target.value)}
+                />
+              </label>
+              <label className="session-label">
+                Usuario mestre
+                <input
+                  className="session-input"
+                  value={createMasterUser}
+                  onChange={(event) => setCreateMasterUser(event.target.value)}
+                />
+              </label>
+              <label className="session-label">
+                Senha mestre
+                <input
+                  className="session-input"
+                  type="password"
+                  value={createMasterPassword}
+                  onChange={(event) => setCreateMasterPassword(event.target.value)}
+                />
+              </label>
+              <div className="campaign-players-header">Players da campanha</div>
+              {createPlayers.map((player, index) => (
+                <div key={`create-player-${index}`} className="campaign-player-row">
+                  <input
+                    className="session-input"
+                    value={player.name}
+                    onChange={(event) => handleCreatePlayerChange(index, 'name', event.target.value)}
+                    placeholder="Nome do player"
+                  />
+                  <input
+                    className="session-input"
+                    type="password"
+                    value={player.password}
+                    onChange={(event) => handleCreatePlayerChange(index, 'password', event.target.value)}
+                    placeholder="Senha"
+                  />
+                  <button className="session-test-btn" onClick={() => handleRemoveCreatePlayer(index)}>
+                    REMOVER
+                  </button>
+                </div>
+              ))}
+              <div className="campaign-actions">
+                <button className="session-test-btn" onClick={handleAddCreatePlayer}>
+                  + ADICIONAR PLAYER
+                </button>
+                <button className="session-start-btn" onClick={handleCreateCampaign}>
+                  SALVAR CAMPANHA
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -507,7 +697,7 @@ function App() {
           campaignId={sessionConfig.campaignId}
           playerId={currentPlayerId}
           role={sessionConfig.role}
-          players={PLAYERS}
+          players={campaignPlayers}
           selectedPlayer={masterSelectedPlayer}
           onSelectPlayer={setMasterSelectedPlayer}
           allTracking={trackingByPlayer}

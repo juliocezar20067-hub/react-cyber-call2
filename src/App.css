@@ -170,6 +170,41 @@ body::before {
   word-break: break-word;
 }
 
+.campaign-create-box {
+  border: 1px solid rgba(255, 58, 58, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.campaign-create-title {
+  color: var(--cp-red);
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-size: 0.86rem;
+}
+
+.campaign-players-header {
+  color: var(--cp-cyan);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.campaign-player-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+}
+
+.campaign-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .session-error {
   color: #ff6b6b;
   font-size: 0.85rem;
@@ -244,6 +279,10 @@ body::before {
     padding: 14px 18px;
     font-size: 0.95rem;
     letter-spacing: 2px;
+  }
+
+  .campaign-player-row {
+    grid-template-columns: 1fr;
   }
 
 }
