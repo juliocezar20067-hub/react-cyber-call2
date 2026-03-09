@@ -4,6 +4,12 @@ import { playSound } from '../../sound/soundSystem';
 import CharacterSheet from './CharacterSheet';
 import './Menu.css';
 
+const MASTER_IMAGE_LIBRARY_PREFIX = 'rc_master_image_library_v1';
+
+function masterImageLibraryStorageKey(campaignId) {
+  return `${MASTER_IMAGE_LIBRARY_PREFIX}:${campaignId}`;
+}
+
 export default function MainMenu({
   onOpenLocations,
   onOpenMissions,
@@ -34,6 +40,8 @@ export default function MainMenu({
   const [showImageTriggerForm, setShowImageTriggerForm] = useState(false);
   const [imageUrlToTrigger, setImageUrlToTrigger] = useState('');
   const [imageTitleToTrigger, setImageTitleToTrigger] = useState('');
+  const [savedImages, setSavedImages] = useState([]);
+  const [imagesHydrated, setImagesHydrated] = useState(false);
 
   useEffect(() => {
     if (!activeMission) {
@@ -48,6 +56,34 @@ export default function MainMenu({
     setEditSummary(activeMission.summary ?? '');
     setEditClue(activeMission.clue ?? '');
   }, [activeMission]);
+
+  useEffect(() => {
+    if (role !== 'master' || !campaignId) {
+      setSavedImages([]);
+      setImagesHydrated(false);
+      return;
+    }
+
+    try {
+      const raw = localStorage.getItem(masterImageLibraryStorageKey(campaignId));
+      if (!raw) {
+        setSavedImages([]);
+        setImagesHydrated(true);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      setSavedImages(Array.isArray(parsed) ? parsed : []);
+      setImagesHydrated(true);
+    } catch {
+      setSavedImages([]);
+      setImagesHydrated(true);
+    }
+  }, [campaignId, role]);
+
+  useEffect(() => {
+    if (role !== 'master' || !campaignId || !imagesHydrated) return;
+    localStorage.setItem(masterImageLibraryStorageKey(campaignId), JSON.stringify(savedImages));
+  }, [campaignId, imagesHydrated, role, savedImages]);
 
   const globalActiveList = useMemo(() => {
     if (role !== 'master') return [];
@@ -123,10 +159,26 @@ export default function MainMenu({
   const handleTriggerImageForSelectedPlayer = () => {
     if (!selectedPlayer || !imageUrlToTrigger.trim()) return;
     playSound('button');
+    const normalizedImage = {
+      imageUrl: imageUrlToTrigger.trim(),
+      title: imageTitleToTrigger.trim() || 'Imagem sem titulo',
+    };
     onTriggerImageForPlayer?.({
       targetPlayerId: selectedPlayer,
-      imageUrl: imageUrlToTrigger.trim(),
+      imageUrl: normalizedImage.imageUrl,
       title: imageTitleToTrigger.trim(),
+    });
+    setSavedImages((prev) => {
+      if (prev.some((image) => image.imageUrl === normalizedImage.imageUrl)) {
+        return prev;
+      }
+      return [
+        {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          ...normalizedImage,
+        },
+        ...prev,
+      ];
     });
     setImageUrlToTrigger('');
     setImageTitleToTrigger('');
@@ -136,6 +188,37 @@ export default function MainMenu({
   const handleToggleImageForm = () => {
     playSound('button');
     setShowImageTriggerForm((prev) => !prev);
+  };
+
+  const handleSaveImagePreset = () => {
+    if (!imageUrlToTrigger.trim()) return;
+    playSound('button');
+    setSavedImages((prev) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        imageUrl: imageUrlToTrigger.trim(),
+        title: imageTitleToTrigger.trim() || 'Imagem sem titulo',
+      },
+      ...prev,
+    ]);
+    setImageUrlToTrigger('');
+    setImageTitleToTrigger('');
+    setShowImageTriggerForm(false);
+  };
+
+  const handleSendSavedImage = (image) => {
+    if (!selectedPlayer) return;
+    playSound('button');
+    onTriggerImageForPlayer?.({
+      targetPlayerId: selectedPlayer,
+      imageUrl: image.imageUrl,
+      title: image.title,
+    });
+  };
+
+  const handleDeleteSavedImage = (imageId) => {
+    playSound('button');
+    setSavedImages((prev) => prev.filter((image) => image.id !== imageId));
   };
 
   return (
@@ -267,6 +350,26 @@ export default function MainMenu({
             <button className="master-trigger-btn" onClick={handleToggleImageForm}>
               DISPARAR IMAGEM
             </button>
+            {savedImages.length > 0 ? (
+              <div className="master-image-library">
+                <div className="master-image-library-title">Imagens Salvas</div>
+                <div className="master-image-library-list">
+                  {savedImages.map((image) => (
+                    <div className="master-image-library-item" key={image.id}>
+                      <div className="master-image-library-name">{image.title}</div>
+                      <div className="master-image-library-actions">
+                        <button className="master-trigger-btn" onClick={() => handleSendSavedImage(image)}>
+                          ENVIAR PARA {selectedPlayer}
+                        </button>
+                        <button className="master-trigger-btn secondary" onClick={() => handleDeleteSavedImage(image.id)}>
+                          EXCLUIR
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {showImageTriggerForm ? (
               <div className="master-image-overlay" onClick={handleToggleImageForm}>
                 <div className="master-image-modal" onClick={(event) => event.stopPropagation()}>
@@ -286,6 +389,9 @@ export default function MainMenu({
                   <div className="master-image-trigger-actions">
                     <button className="master-trigger-btn" onClick={handleTriggerImageForSelectedPlayer}>
                       ENVIAR PARA {selectedPlayer}
+                    </button>
+                    <button className="master-trigger-btn secondary" onClick={handleSaveImagePreset}>
+                      SALVAR IMAGEM
                     </button>
                     <button className="master-trigger-btn secondary" onClick={handleToggleImageForm}>
                       CANCELAR
