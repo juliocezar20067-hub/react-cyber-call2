@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const PANEL_ENTRIES_PREFIX = 'rc_panel_entries_v1';
 
@@ -21,6 +21,7 @@ function normalizeEntries(value, fallback) {
 
 export default function usePanelEntries({ campaignId, playerId, panelId, defaultEntries = [] }) {
   const [entries, setEntries] = useState([]);
+  const defaultEntriesRef = useRef(defaultEntries);
 
   const storageKey = useMemo(() => {
     if (!campaignId || !playerId || !panelId) {
@@ -28,6 +29,10 @@ export default function usePanelEntries({ campaignId, playerId, panelId, default
     }
     return createStorageKey(campaignId, playerId, panelId);
   }, [campaignId, panelId, playerId]);
+
+  useEffect(() => {
+    defaultEntriesRef.current = defaultEntries;
+  }, [defaultEntries]);
 
   useEffect(() => {
     if (!storageKey) {
@@ -38,16 +43,16 @@ export default function usePanelEntries({ campaignId, playerId, panelId, default
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) {
-        setEntries(defaultEntries);
+        setEntries(defaultEntriesRef.current);
         return;
       }
 
       const parsed = JSON.parse(raw);
-      setEntries(normalizeEntries(parsed, defaultEntries));
+      setEntries(normalizeEntries(parsed, defaultEntriesRef.current));
     } catch {
-      setEntries(defaultEntries);
+      setEntries(defaultEntriesRef.current);
     }
-  }, [defaultEntries, storageKey]);
+  }, [storageKey]);
 
   useEffect(() => {
     if (!storageKey) return;

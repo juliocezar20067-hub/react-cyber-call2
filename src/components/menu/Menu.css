@@ -351,6 +351,20 @@
   font-size: 0.85rem;
 }
 
+.entry-link {
+  color: #7dc3ff;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.entry-image-preview {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border: 1px solid rgba(125, 195, 255, 0.5);
+}
+
 .entry-tag {
   font-size: 0.72rem;
   color: #7dc3ff;
