@@ -147,18 +147,7 @@ function App() {
     if (!sessionConfig) return;
 
     openMenu();
-    if (sessionConfig.role === 'master') {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      openIncoming();
-    }, 6000);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [sessionConfig, openIncoming, openMenu]);
+  }, [sessionConfig, openMenu]);
 
   useEffect(() => {
     consumedCallTriggerRef.current = '';
