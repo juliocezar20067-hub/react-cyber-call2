@@ -11,23 +11,13 @@ import CharacterProfilePanel from './components/menu/CharacterProfilePanel';
 import useCallFlow from './hooks/useCallFlow';
 import { initAudioUnlock, onSoundEnded, playSound, preloadAllSounds, stopNarration, stopSound } from './sound/soundSystem';
 import { MISSION_CLUE, MISSION_NPC, MISSION_SUMMARY, MISSION_TITLE } from './constants/ui';
-import { getStoredState, isCloudConfigured, setStoredState, testCloudConnection } from './lib/stateStorage';
+import { getStoredState, isCloudConfigured, setStoredState, subscribeStoredState, testCloudConnection } from './lib/stateStorage';
 import './App.css';
 
-const CALL_TRIGGER_PREFIX = 'rc_call_trigger_v1';
-const IMAGE_TRIGGER_PREFIX = 'rc_image_trigger_v1';
 const CAMPAIGN_AUTH_SCOPE = 'campaign_auth_v1';
 
 function createDefaultTracking() {
   return { active: null, completed: [], denied: [] };
-}
-
-function callTriggerStorageKey(campaignId, playerId) {
-  return `${CALL_TRIGGER_PREFIX}:${campaignId}:${playerId}`;
-}
-
-function imageTriggerStorageKey(campaignId, playerId) {
-  return `${IMAGE_TRIGGER_PREFIX}:${campaignId}:${playerId}`;
 }
 
 function createMissionPayload() {
@@ -209,86 +199,59 @@ function App() {
       return;
     }
 
-    const callKey = callTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
-    const imageKey = imageTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
-    try {
-      const callRaw = localStorage.getItem(callKey);
-      const callParsed = callRaw ? JSON.parse(callRaw) : null;
-      consumedCallTriggerRef.current = callParsed?.id ?? '';
+    let firstCallEvent = true;
+    let firstImageEvent = true;
 
-      const imageRaw = localStorage.getItem(imageKey);
-      const imageParsed = imageRaw ? JSON.parse(imageRaw) : null;
-      consumedImageTriggerRef.current = imageParsed?.id ?? '';
-    } catch {
-      consumedCallTriggerRef.current = '';
-      consumedImageTriggerRef.current = '';
-    }
-  }, [sessionConfig]);
-
-  useEffect(() => {
-    if (!sessionConfig || sessionConfig.role !== 'player' || !sessionConfig.playerId) {
-      return;
-    }
-
-    const callTriggerKey = callTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
-    const imageTriggerKey = imageTriggerStorageKey(sessionConfig.campaignId, sessionConfig.playerId);
-    const tryOpenIncomingFromTrigger = () => {
-      try {
-        const raw = localStorage.getItem(callTriggerKey);
-        if (!raw) return;
-
-        const parsed = JSON.parse(raw);
+    const unsubscribeCall = subscribeStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId: sessionConfig.playerId,
+      scope: 'event_call_trigger',
+      fallback: null,
+      onChange: (parsed) => {
         const triggerId = parsed?.id ?? '';
-        if (!triggerId || consumedCallTriggerRef.current === triggerId) return;
+        if (!triggerId) return;
 
+        if (firstCallEvent) {
+          consumedCallTriggerRef.current = triggerId;
+          firstCallEvent = false;
+          return;
+        }
+
+        if (consumedCallTriggerRef.current === triggerId) return;
         consumedCallTriggerRef.current = triggerId;
         openIncoming();
-      } catch {
-        // Ignore malformed trigger payloads.
-      }
-    };
+      },
+    });
 
-    const tryOpenImageFromTrigger = () => {
-      try {
-        const raw = localStorage.getItem(imageTriggerKey);
-        if (!raw) return;
-
-        const parsed = JSON.parse(raw);
+    const unsubscribeImage = subscribeStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId: sessionConfig.playerId,
+      scope: 'event_image_trigger',
+      fallback: null,
+      onChange: (parsed) => {
         const triggerId = parsed?.id ?? '';
         const imageUrl = parsed?.imageUrl?.trim?.() ?? '';
-        if (!triggerId || consumedImageTriggerRef.current === triggerId || !imageUrl) return;
+        if (!triggerId || !imageUrl) return;
 
+        if (firstImageEvent) {
+          consumedImageTriggerRef.current = triggerId;
+          firstImageEvent = false;
+          return;
+        }
+
+        if (consumedImageTriggerRef.current === triggerId) return;
         consumedImageTriggerRef.current = triggerId;
         setImagePopup({
           title: parsed?.title?.trim?.() || 'TRANSMISSAO VISUAL',
           imageUrl,
           source: parsed?.source ?? 'master',
         });
-      } catch {
-        // Ignore malformed trigger payloads.
-      }
-    };
-
-    const handleStorage = (event) => {
-      if (event.key === callTriggerKey) {
-        tryOpenIncomingFromTrigger();
-      }
-      if (event.key === imageTriggerKey) {
-        tryOpenImageFromTrigger();
-      }
-    };
-
-    const poll = setInterval(() => {
-      tryOpenIncomingFromTrigger();
-      tryOpenImageFromTrigger();
-    }, 1200);
-    window.addEventListener('storage', handleStorage);
-    tryOpenIncomingFromTrigger();
-    tryOpenImageFromTrigger();
+      },
+    });
 
     return () => {
-      clearInterval(poll);
-      window.removeEventListener('storage', handleStorage);
+      unsubscribeCall();
+      unsubscribeImage();
     };
   }, [openIncoming, sessionConfig]);
 
@@ -505,7 +468,12 @@ function App() {
       source: 'master',
       targetPlayerId,
     };
-    localStorage.setItem(callTriggerStorageKey(sessionConfig.campaignId, targetPlayerId), JSON.stringify(payload));
+    setStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId: targetPlayerId,
+      scope: 'event_call_trigger',
+      data: payload,
+    });
   };
 
   const handleMasterTriggerImage = ({ targetPlayerId, imageUrl, title }) => {
@@ -521,7 +489,12 @@ function App() {
       imageUrl: imageUrl.trim(),
       title: title?.trim() || '',
     };
-    localStorage.setItem(imageTriggerStorageKey(sessionConfig.campaignId, targetPlayerId), JSON.stringify(payload));
+    setStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId: targetPlayerId,
+      scope: 'event_image_trigger',
+      data: payload,
+    });
   };
 
   const handleCloseImagePopup = () => {

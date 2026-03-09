@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getStoredState, setStoredState } from '../lib/stateStorage';
+import { setStoredState, subscribeStoredState } from '../lib/stateStorage';
 
 function normalizeEntries(value, fallback) {
   if (!Array.isArray(value)) {
@@ -30,21 +30,18 @@ export default function usePanelEntries({ campaignId, playerId, panelId, default
       return;
     }
 
-    let cancelled = false;
-    getStoredState({
+    const unsubscribe = subscribeStoredState({
       campaignId,
       playerId,
       scope: `panel_entries:${panelId}`,
       fallback: defaultEntriesRef.current,
-    }).then((data) => {
-      if (cancelled) return;
+      onChange: (data) => {
       setEntries(normalizeEntries(data, defaultEntriesRef.current));
       setHydrated(true);
+      },
     });
 
-    return () => {
-      cancelled = true;
-    };
+    return unsubscribe;
   }, [campaignId, panelId, playerId]);
 
   useEffect(() => {

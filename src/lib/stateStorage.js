@@ -4,6 +4,8 @@ function localStateKey(campaignId, playerId, scope) {
   return `${LOCAL_PREFIX}:${campaignId}:${playerId}:${scope}`;
 }
 
+const inMemoryState = new Map();
+
 function cloudEnabled() {
   return Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
 }
@@ -67,19 +69,13 @@ async function writeToCloud(campaignId, playerId, scope, data) {
 export async function getStoredState({ campaignId, playerId, scope, fallback }) {
   const key = localStateKey(campaignId, playerId, scope);
 
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw != null) {
-      return JSON.parse(raw);
-    }
-  } catch {
-    // Ignore malformed local state.
+  if (!cloudEnabled()) {
+    return inMemoryState.has(key) ? inMemoryState.get(key) : fallback;
   }
 
   try {
     const cloudData = await readFromCloud(campaignId, playerId, scope);
     if (cloudData != null) {
-      localStorage.setItem(key, JSON.stringify(cloudData));
       return cloudData;
     }
   } catch {
@@ -91,7 +87,7 @@ export async function getStoredState({ campaignId, playerId, scope, fallback }) 
 
 export function setStoredState({ campaignId, playerId, scope, data }) {
   const key = localStateKey(campaignId, playerId, scope);
-  localStorage.setItem(key, JSON.stringify(data));
+  inMemoryState.set(key, data);
 
   writeToCloud(campaignId, playerId, scope, data).catch(() => {
     // Ignore cloud write errors; local state remains source of truth offline.
@@ -100,6 +96,37 @@ export function setStoredState({ campaignId, playerId, scope, data }) {
       console.warn('Supabase write failed for scope:', scope);
     }
   });
+}
+
+export function subscribeStoredState({
+  campaignId,
+  playerId,
+  scope,
+  onChange,
+  fallback = null,
+  intervalMs = 1200,
+}) {
+  let disposed = false;
+  let lastSerialized = null;
+
+  const tick = async () => {
+    if (disposed) return;
+    const data = await getStoredState({ campaignId, playerId, scope, fallback });
+    const serialized = JSON.stringify(data ?? null);
+    if (serialized === lastSerialized) return;
+    lastSerialized = serialized;
+    onChange(data ?? fallback);
+  };
+
+  void tick();
+  const timer = setInterval(() => {
+    void tick();
+  }, intervalMs);
+
+  return () => {
+    disposed = true;
+    clearInterval(timer);
+  };
 }
 
 export function isCloudConfigured() {

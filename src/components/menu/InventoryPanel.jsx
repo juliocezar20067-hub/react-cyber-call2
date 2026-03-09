@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { playSound } from '../../sound/soundSystem';
-import { getStoredState, setStoredState } from '../../lib/stateStorage';
+import { setStoredState, subscribeStoredState } from '../../lib/stateStorage';
 import './Menu.css';
 
 const CELL_SIZE = 46;
@@ -61,14 +61,12 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
   useEffect(() => {
     if (!campaignId || !playerId) return;
 
-    let cancelled = false;
-    getStoredState({
+    const unsubscribe = subscribeStoredState({
       campaignId,
       playerId,
       scope,
       fallback: null,
-    }).then((parsed) => {
-      if (cancelled) return;
+      onChange: (parsed) => {
       const cols = Number(parsed?.gridCols);
       const rows = Number(parsed?.gridRows);
       const loadedItems = Array.isArray(parsed?.items) ? parsed.items : [];
@@ -94,11 +92,10 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
         }))
       );
       setHydrated(true);
+      },
     });
 
-    return () => {
-      cancelled = true;
-    };
+    return unsubscribe;
   }, [campaignId, playerId, scope]);
 
   useEffect(() => {
