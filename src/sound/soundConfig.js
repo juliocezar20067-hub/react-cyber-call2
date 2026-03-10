@@ -1,5 +1,7 @@
 export const SOUND_FILES = {
   button: '/sounds/button-click.mp3',
+  terminalType: '/sounds/terminal-type.mp3',
+  terminalWriting: '/sounds/terminal-writing-loop.mp3',
   glitch: '/sounds/glitch.mp3',
   endCall: '/sounds/end-call.mp3',
   narration: '/sounds/narration.mp3',

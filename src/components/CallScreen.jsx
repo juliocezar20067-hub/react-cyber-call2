@@ -7,7 +7,14 @@ import CallHeader from './call-screen/CallHeader';
 import MainLayout from './call-screen/MainLayout';
 import './CallScreen.css';
 
-export default function CallScreen({ onExit, showMissionDecision, onAcceptMission, onDenyMission, onNarrationStart }) {
+export default function CallScreen({
+  onExit,
+  showMissionDecision,
+  onAcceptMission,
+  onDenyMission,
+  onNarrationStart,
+  callEventData,
+}) {
   const [showMessage, setShowMessage] = useState(false);
 
   const toggleMessage = () => {
@@ -24,9 +31,14 @@ export default function CallScreen({ onExit, showMissionDecision, onAcceptMissio
             <div className="call-screen-top-actions">
               <button className="exit-call-btn" onClick={onExit}>SAIR DA LIGACAO</button>
             </div>
-            <CallHeader />
-            <VideoFrame />
-            <Controls onToggleMessage={toggleMessage} showMessage={showMessage} onNarrationStart={onNarrationStart} />
+            <CallHeader connectionCode={callEventData?.connectionCode} callerName={callEventData?.callerName} />
+            <VideoFrame imageUrl={callEventData?.avatarUrl} />
+            <Controls
+              onToggleMessage={toggleMessage}
+              showMessage={showMessage}
+              onNarrationStart={onNarrationStart}
+              narrationUrl={callEventData?.audioUrl}
+            />
             {showMissionDecision ? (
               <div className="mission-decision-box">
                 <button className="mission-decision-btn accept" onClick={onAcceptMission}>ACEITAR MISSAO</button>
@@ -35,7 +47,13 @@ export default function CallScreen({ onExit, showMissionDecision, onAcceptMissio
             ) : null}
           </div>
         )}
-        messagePanel={<MessagePanel />}
+        messagePanel={(
+          <MessagePanel
+            messageText={callEventData?.messageText}
+            messageSender={callEventData?.messageSender}
+            messageTimestamp={callEventData?.messageTimestamp}
+          />
+        )}
       />
     </div>
   );

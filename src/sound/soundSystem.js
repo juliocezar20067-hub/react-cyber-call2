@@ -12,10 +12,38 @@ function getAudio(soundKey) {
   if (!src) return null;
 
   if (!audioCache.has(soundKey)) {
-    audioCache.set(soundKey, new Audio(src));
+    const audio = new Audio(src);
+    audio.preload = 'auto';
+    audio.crossOrigin = 'anonymous';
+    audioCache.set(soundKey, audio);
   }
 
   return audioCache.get(soundKey);
+}
+
+function resolveAudioSrc(src) {
+  if (typeof src === 'string' && src.includes('drive.google.com')) {
+    try {
+      const directByPath = src.match(/\/file\/d\/([^/]+)/i);
+      if (directByPath?.[1]) {
+        return `https://drive.google.com/uc?export=download&id=${directByPath[1]}`;
+      }
+
+      const url = new URL(src);
+      const id = url.searchParams.get('id');
+      if (id) {
+        return `https://drive.google.com/uc?export=download&id=${id}`;
+      }
+    } catch {
+      // If parsing fails, continue with original source.
+    }
+  }
+
+  try {
+    return new URL(src, window.location.href).href;
+  } catch {
+    return src;
+  }
 }
 
 function waitForAudioLoad(audio) {
@@ -83,36 +111,47 @@ function setupNarrationFilter(audio) {
   const context = getAudioContext();
   if (!context) return;
 
-  const source = context.createMediaElementSource(audio);
-  const highPass = context.createBiquadFilter();
-  highPass.type = 'highpass';
-  highPass.frequency.value = 280;
+  try {
+    const source = context.createMediaElementSource(audio);
+    const highPass = context.createBiquadFilter();
+    highPass.type = 'highpass';
+    highPass.frequency.value = 280;
 
-  const lowPass = context.createBiquadFilter();
-  lowPass.type = 'lowpass';
-  lowPass.frequency.value = 3400;
+    const lowPass = context.createBiquadFilter();
+    lowPass.type = 'lowpass';
+    lowPass.frequency.value = 3400;
 
-  const compressor = context.createDynamicsCompressor();
-  compressor.threshold.value = -24;
-  compressor.knee.value = 24;
-  compressor.ratio.value = 10;
-  compressor.attack.value = 0.003;
-  compressor.release.value = 0.2;
+    const compressor = context.createDynamicsCompressor();
+    compressor.threshold.value = -24;
+    compressor.knee.value = 24;
+    compressor.ratio.value = 10;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.2;
 
-  source.connect(highPass);
-  highPass.connect(lowPass);
-  lowPass.connect(compressor);
-  compressor.connect(context.destination);
-  narrationChainReady = true;
+    source.connect(highPass);
+    highPass.connect(lowPass);
+    lowPass.connect(compressor);
+    compressor.connect(context.destination);
+    narrationChainReady = true;
+  } catch {
+    narrationChainReady = false;
+  }
 }
 
-export async function playSound(soundKey, { volume = 1, loop = false, reset = true } = {}) {
+export async function playSound(soundKey, { volume = 1, loop = false, reset = true, src } = {}) {
   if (soundKey === 'glitch' && glitchSoundPlayCount >= GLITCH_SOUND_MAX_PLAYS) {
     return false;
   }
 
   const audio = getAudio(soundKey);
   if (!audio) return false;
+  audio.crossOrigin = 'anonymous';
+
+  const desiredSrc = src ? resolveAudioSrc(src) : resolveAudioSrc(SOUND_FILES[soundKey]);
+  if (desiredSrc && audio.src !== desiredSrc) {
+    audio.src = desiredSrc;
+    audio.load();
+  }
 
   audio.volume = volume;
   audio.loop = loop;

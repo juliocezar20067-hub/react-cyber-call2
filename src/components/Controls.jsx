@@ -2,11 +2,12 @@ import ControlButton from './controls/ControlButton';
 import useControlHandlers from './controls/useControlHandlers';
 import './Controls.css';
 
-export default function Controls({ onToggleMessage, showMessage, onNarrationStart }) {
+export default function Controls({ onToggleMessage, showMessage, onNarrationStart, narrationUrl }) {
   const { handleGlitchClick, handleTextClick, handleEndClick } = useControlHandlers({
     onToggleMessage,
     showMessage,
     onNarrationStart,
+    narrationUrl,
   });
 
   return (

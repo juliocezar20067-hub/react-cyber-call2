@@ -10,11 +10,42 @@ import InventoryPanel from './components/menu/InventoryPanel';
 import CharacterProfilePanel from './components/menu/CharacterProfilePanel';
 import useCallFlow from './hooks/useCallFlow';
 import { initAudioUnlock, onSoundEnded, playSound, preloadAllSounds, stopNarration, stopSound } from './sound/soundSystem';
-import { MISSION_CLUE, MISSION_NPC, MISSION_SUMMARY, MISSION_TITLE } from './constants/ui';
+import {
+  CALLER_NAME,
+  CONNECTION_CODE,
+  INCOMING_STATUS_TEXT,
+  MESSAGE_SENDER,
+  MESSAGE_TEXT,
+  MESSAGE_TIMESTAMP,
+  MISSION_CLUE,
+  MISSION_NPC,
+  MISSION_SUMMARY,
+  MISSION_TITLE,
+} from './constants/ui';
 import { getStoredState, isCloudConfigured, setStoredState, subscribeStoredState, testCloudConnection } from './lib/stateStorage';
 import './App.css';
 
 const CAMPAIGN_AUTH_SCOPE = 'campaign_auth_v1';
+const CREATE_CAMPAIGN_BOOT_LINES = [
+  { text: '> ESTABELECENDO CONEXAO...', type: 'line' },
+  { text: '> SINCRONIZANDO PROTOCOLOS DE SEGURANCA...', type: 'line' },
+  { text: '> VERIFICANDO ASSINATURA NEURAL...', type: 'line' },
+  { text: '[OK]', type: 'ok' },
+  { text: 'SINAL DE ACESSO DETECTADO.', type: 'text' },
+  { text: 'CONFIRMANDO PRESENCA DE NETRUNNER NO TERMINAL.', type: 'text' },
+  { text: 'Rede protegida ativa. Atividades monitoradas por protocolos corporativos.', type: 'text' },
+  { text: 'Para continuar, identifique-se.', type: 'text' },
+  { text: '>> AUTENTICACAO NECESSARIA PARA LIBERACAO DE TERMINAL', type: 'prompt' },
+];
+const BOOT_CHAR_DELAY_MS = 18;
+const BOOT_LINE_GAP_MS = 120;
+
+function bootLineClass(type) {
+  if (type === 'ok') return 'terminal-boot-ok';
+  if (type === 'prompt') return 'terminal-boot-prompt';
+  if (type === 'text') return 'terminal-boot-text';
+  return 'terminal-boot-line';
+}
 
 function createDefaultTracking() {
   return { active: null, completed: [], denied: [] };
@@ -26,6 +57,35 @@ function createMissionPayload() {
     npc: MISSION_NPC,
     summary: MISSION_SUMMARY,
     clue: MISSION_CLUE,
+  };
+}
+
+function createDefaultCallEvent() {
+  return {
+    callerName: CALLER_NAME,
+    connectionCode: CONNECTION_CODE,
+    statusText: INCOMING_STATUS_TEXT,
+    avatarUrl: '',
+    messageText: MESSAGE_TEXT,
+    messageSender: MESSAGE_SENDER,
+    messageTimestamp: MESSAGE_TIMESTAMP,
+    audioUrl: '',
+    mission: createMissionPayload(),
+  };
+}
+
+function createCallEventFromContact(contact) {
+  if (!contact) return createDefaultCallEvent();
+  return {
+    callerName: contact.name || CALLER_NAME,
+    connectionCode: contact.connection || CONNECTION_CODE,
+    statusText: contact.status || INCOMING_STATUS_TEXT,
+    avatarUrl: contact.avatarUrl || '',
+    messageText: contact.messageText || MESSAGE_TEXT,
+    messageSender: contact.messageSender || `${contact.name || CALLER_NAME} >>`,
+    messageTimestamp: contact.messageTimestamp || MESSAGE_TIMESTAMP,
+    audioUrl: contact.audioUrl || '',
+    mission: contact.mission || createMissionPayload(),
   };
 }
 
@@ -80,6 +140,9 @@ function App() {
     { name: '404', password: '' },
     { name: 'Soren', password: '' },
   ]);
+  const [bootRenderedLines, setBootRenderedLines] = useState([]);
+  const [bootTypingLine, setBootTypingLine] = useState(null);
+  const [bootCompleted, setBootCompleted] = useState(false);
 
   const [trackingByPlayer, setTrackingByPlayer] = useState({});
   const [showMissionDecision, setShowMissionDecision] = useState(false);
@@ -88,10 +151,99 @@ function App() {
   const [experienceStarted, setExperienceStarted] = useState(false);
   const [audioProgress, setAudioProgress] = useState({ loaded: 0, total: 1 });
   const [imagePopup, setImagePopup] = useState(null);
+  const [activeCallEvent, setActiveCallEvent] = useState(createDefaultCallEvent());
+  const [pendingMissionOffer, setPendingMissionOffer] = useState(createMissionPayload());
+  const [contactsByPlayer, setContactsByPlayer] = useState({});
   const [trackingHydrated, setTrackingHydrated] = useState(false);
   const consumedCallTriggerRef = useRef('');
   const consumedImageTriggerRef = useRef('');
+  const lastTerminalTypeAtRef = useRef(0);
+  const bootTimerRef = useRef(null);
+  const bootIntervalRef = useRef(null);
 
+  const playTerminalType = () => {
+    const now = Date.now();
+    if (now - lastTerminalTypeAtRef.current < 45) return;
+    lastTerminalTypeAtRef.current = now;
+    playSound('terminalType', { volume: 0.22, reset: true });
+  };
+
+  const clearBootAnimation = () => {
+    if (bootTimerRef.current) {
+      window.clearTimeout(bootTimerRef.current);
+      bootTimerRef.current = null;
+    }
+    if (bootIntervalRef.current) {
+      window.clearInterval(bootIntervalRef.current);
+      bootIntervalRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!showCreateCampaign) {
+      clearBootAnimation();
+      setBootRenderedLines([]);
+      setBootTypingLine(null);
+      setBootCompleted(false);
+      stopSound('terminalWriting');
+      return;
+    }
+
+    clearBootAnimation();
+    stopSound('terminalWriting');
+    setBootRenderedLines([]);
+    setBootTypingLine(null);
+    setBootCompleted(false);
+
+    let cancelled = false;
+    let lineIndex = 0;
+
+    const typeNextLine = () => {
+      if (cancelled) return;
+      if (lineIndex >= CREATE_CAMPAIGN_BOOT_LINES.length) {
+        setBootTypingLine(null);
+        setBootCompleted(true);
+        stopSound('terminalWriting');
+        return;
+      }
+
+      const line = CREATE_CAMPAIGN_BOOT_LINES[lineIndex];
+      let charIndex = 0;
+
+      stopSound('terminalWriting');
+      playSound('terminalWriting', { loop: false, volume: 0.16, reset: true });
+
+      setBootTypingLine({ type: line.type, text: '' });
+
+      bootIntervalRef.current = window.setInterval(() => {
+        if (cancelled) return;
+        charIndex += 1;
+        const partial = line.text.slice(0, charIndex);
+        setBootTypingLine({ type: line.type, text: partial });
+
+        if (charIndex < line.text.length) return;
+
+        if (bootIntervalRef.current) {
+          window.clearInterval(bootIntervalRef.current);
+          bootIntervalRef.current = null;
+        }
+
+        setBootRenderedLines((prev) => [...prev, line]);
+        setBootTypingLine(null);
+        lineIndex += 1;
+
+        bootTimerRef.current = window.setTimeout(typeNextLine, BOOT_LINE_GAP_MS);
+      }, BOOT_CHAR_DELAY_MS);
+    };
+
+    bootTimerRef.current = window.setTimeout(typeNextLine, 120);
+
+    return () => {
+      cancelled = true;
+      clearBootAnimation();
+      stopSound('terminalWriting');
+    };
+  }, [showCreateCampaign]);
   const isSessionReady = Boolean(sessionConfig);
   const currentPlayerId = useMemo(() => {
     if (!sessionConfig) return null;
@@ -187,6 +339,34 @@ function App() {
   }, [campaignPlayers, sessionConfig]);
 
   useEffect(() => {
+    if (!sessionConfig || sessionConfig.role !== 'master' || campaignPlayers.length === 0) {
+      setContactsByPlayer({});
+      return;
+    }
+
+    const unsubscribers = campaignPlayers.map((playerId) =>
+      subscribeStoredState({
+        campaignId: sessionConfig.campaignId,
+        playerId,
+        scope: 'panel_entries:contacts',
+        fallback: [],
+        onChange: (contacts) => {
+          setContactsByPlayer((prev) => ({
+            ...prev,
+            [playerId]: Array.isArray(contacts) ? contacts : [],
+          }));
+        },
+      })
+    );
+
+    return () => {
+      for (const unsubscribe of unsubscribers) {
+        unsubscribe();
+      }
+    };
+  }, [campaignPlayers, sessionConfig]);
+
+  useEffect(() => {
     if (!sessionConfig) return;
 
     openMenu();
@@ -219,6 +399,12 @@ function App() {
 
         if (consumedCallTriggerRef.current === triggerId) return;
         consumedCallTriggerRef.current = triggerId;
+        if (parsed?.callEvent) {
+          setActiveCallEvent({ ...createDefaultCallEvent(), ...parsed.callEvent });
+          if (parsed?.callEvent?.mission) {
+            setPendingMissionOffer(parsed.callEvent.mission);
+          }
+        }
         openIncoming();
       },
     });
@@ -296,7 +482,7 @@ function App() {
     playSound('button');
     updateTrackingForPlayer(currentPlayerId, (current) => ({
       ...current,
-      active: createMissionPayload(),
+      active: pendingMissionOffer ?? createMissionPayload(),
     }));
     setShowMissionDecision(false);
   };
@@ -305,7 +491,7 @@ function App() {
     playSound('button');
     updateTrackingForPlayer(currentPlayerId, (current) => ({
       ...current,
-      denied: [createMissionPayload(), ...(current.denied ?? [])].slice(0, 6),
+      denied: [pendingMissionOffer ?? createMissionPayload(), ...(current.denied ?? [])].slice(0, 6),
     }));
     setShowMissionDecision(false);
   };
@@ -392,6 +578,7 @@ function App() {
   };
 
   const handleCreatePlayerChange = (index, field, value) => {
+    playTerminalType();
     setCreatePlayers((prev) =>
       prev.map((player, playerIndex) => (playerIndex === index ? { ...player, [field]: value } : player))
     );
@@ -456,17 +643,19 @@ function App() {
     setIsTestingCloud(false);
   };
 
-  const handleMasterTriggerCall = (targetPlayerId) => {
-    if (!sessionConfig || sessionConfig.role !== 'master' || !targetPlayerId) {
+  const handleMasterTriggerCall = (targetPlayerId, contact) => {
+    if (!sessionConfig || sessionConfig.role !== 'master' || !targetPlayerId || !contact) {
       return;
     }
 
     playSound('button');
+    const callEvent = createCallEventFromContact(contact);
     const payload = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       createdAt: Date.now(),
       source: 'master',
       targetPlayerId,
+      callEvent,
     };
     setStoredState({
       campaignId: sessionConfig.campaignId,
@@ -500,6 +689,13 @@ function App() {
   const handleCloseImagePopup = () => {
     playSound('button');
     setImagePopup(null);
+  };
+
+  const handleOpenContactEvent = (contact) => {
+    const event = createCallEventFromContact(contact);
+    setActiveCallEvent(event);
+    setPendingMissionOffer(event.mission ?? createMissionPayload());
+    openCall();
   };
 
   const currentTracking = currentPlayerId ? trackingByPlayer[currentPlayerId] ?? createDefaultTracking() : createDefaultTracking();
@@ -577,73 +773,115 @@ function App() {
           <button className="session-test-btn" onClick={() => setShowCreateCampaign((prev) => !prev)}>
             {showCreateCampaign ? 'FECHAR CRIAR CAMPANHA' : 'CRIAR CAMPANHA'}
           </button>
-          {showCreateCampaign ? (
-            <div className="campaign-create-box">
-              <div className="campaign-create-title">Nova Campanha</div>
-              <label className="session-label">
-                ID da campanha
-                <input
-                  className="session-input"
-                  value={createCampaignId}
-                  onChange={(event) => setCreateCampaignId(event.target.value)}
-                />
-              </label>
-              <label className="session-label">
-                Usuario mestre
-                <input
-                  className="session-input"
-                  value={createMasterUser}
-                  onChange={(event) => setCreateMasterUser(event.target.value)}
-                />
-              </label>
-              <label className="session-label">
-                Senha mestre
-                <input
-                  className="session-input"
-                  type="password"
-                  value={createMasterPassword}
-                  onChange={(event) => setCreateMasterPassword(event.target.value)}
-                />
-              </label>
-              <div className="campaign-players-header">Players da campanha</div>
-              {createPlayers.map((player, index) => (
-                <div key={`create-player-${index}`} className="campaign-player-row">
+        </div>
+        {showCreateCampaign ? (
+          <div className="campaign-create-overlay" onClick={() => setShowCreateCampaign(false)}>
+            <div className="campaign-create-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="campaign-create-box">
+                <div className="campaign-create-terminal">
+                  <div className="campaign-create-title">BOOT DE TERMINAL</div>
+                  {bootRenderedLines.map((line, index) => (
+                    <div
+                      key={`${line.type}-${line.text}-${index}`}
+                      className={bootLineClass(line.type)}
+                    >
+                      {line.text}
+                    </div>
+                  ))}
+                  {bootTypingLine ? (
+                    <div className={bootLineClass(bootTypingLine.type)}>
+                      {bootTypingLine.text}
+                      <span className="terminal-cmd-cursor">_</span>
+                    </div>
+                  ) : null}
+                  {bootCompleted ? <div className="terminal-boot-cursor">AGUARDANDO CREDENCIAIS DO OPERADOR...</div> : null}
+                </div>
+                <div className="terminal-input-row">
+                  <span className="terminal-inline-prompt">&gt;&gt; INSIRA O ID DE SUA CAMPANHA:</span>
                   <input
-                    className="session-input"
-                    value={player.name}
-                    onChange={(event) => handleCreatePlayerChange(index, 'name', event.target.value)}
-                    placeholder="Nome do player"
+                    className="session-input terminal-inline-input"
+                    value={createCampaignId}
+                    onChange={(event) => {
+                      playTerminalType();
+                      setCreateCampaignId(event.target.value);
+                    }}
                   />
+                </div>
+                <div className="terminal-input-row">
+                  <span className="terminal-inline-prompt">&gt;&gt; DEFINA O OPERADOR MESTRE:</span>
                   <input
-                    className="session-input"
+                    className="session-input terminal-inline-input"
+                    value={createMasterUser}
+                    onChange={(event) => {
+                      playTerminalType();
+                      setCreateMasterUser(event.target.value);
+                    }}
+                  />
+                </div>
+                <div className="terminal-input-row">
+                  <span className="terminal-inline-prompt">&gt;&gt; DEFINA A SENHA DO MESTRE:</span>
+                  <input
+                    className="session-input terminal-inline-input"
                     type="password"
-                    value={player.password}
-                    onChange={(event) => handleCreatePlayerChange(index, 'password', event.target.value)}
-                    placeholder="Senha"
+                    value={createMasterPassword}
+                    onChange={(event) => {
+                      playTerminalType();
+                      setCreateMasterPassword(event.target.value);
+                    }}
                   />
-                  <button className="session-test-btn" onClick={() => handleRemoveCreatePlayer(index)}>
-                    REMOVER
+                </div>
+                <div className="campaign-players-header">PLAYERS DA CAMPANHA</div>
+                {createPlayers.map((player, index) => (
+                  <div key={`create-player-${index}`} className="campaign-player-row">
+                    <input
+                      className="session-input"
+                      value={player.name}
+                      onChange={(event) => handleCreatePlayerChange(index, 'name', event.target.value)}
+                      placeholder="Nome do player"
+                    />
+                    <input
+                      className="session-input"
+                      type="password"
+                      value={player.password}
+                      onChange={(event) => handleCreatePlayerChange(index, 'password', event.target.value)}
+                      placeholder="Senha"
+                    />
+                    <button className="session-test-btn" onClick={() => handleRemoveCreatePlayer(index)}>
+                      REMOVER
+                    </button>
+                  </div>
+                ))}
+                <div className="campaign-actions">
+                  <button className="session-test-btn" onClick={handleAddCreatePlayer}>
+                    + ADICIONAR PLAYER
+                  </button>
+                  <button className="session-start-btn" onClick={handleCreateCampaign}>
+                    SALVAR CAMPANHA
+                  </button>
+                  <button className="session-test-btn" onClick={() => setShowCreateCampaign(false)}>
+                    FECHAR
                   </button>
                 </div>
-              ))}
-              <div className="campaign-actions">
-                <button className="session-test-btn" onClick={handleAddCreatePlayer}>
-                  + ADICIONAR PLAYER
-                </button>
-                <button className="session-start-btn" onClick={handleCreateCampaign}>
-                  SALVAR CAMPANHA
-                </button>
+                <div className="campaign-create-hint">
+                  Dica: use players no formato <code>404:senha,Soren:senha</code>.
+                </div>
               </div>
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="app">
-      {currentView === 'incoming' ? <IncomingCall onAnswer={answerCall} /> : null}
+      {currentView === 'incoming' ? (
+        <IncomingCall
+          onAnswer={answerCall}
+          callerName={activeCallEvent.callerName}
+          statusText={activeCallEvent.statusText}
+        />
+      ) : null}
       {currentView === 'call' ? (
         <CallScreen
           onExit={exitCallToMenu}
@@ -651,6 +889,7 @@ function App() {
           onAcceptMission={handleAcceptMission}
           onDenyMission={handleDenyMission}
           onNarrationStart={handleNarrationStart}
+          callEventData={activeCallEvent}
         />
       ) : null}
       {currentView === 'menu' ? (
@@ -674,6 +913,7 @@ function App() {
           selectedPlayer={masterSelectedPlayer}
           onSelectPlayer={setMasterSelectedPlayer}
           allTracking={trackingByPlayer}
+          masterContacts={contactsByPlayer[masterSelectedPlayer] ?? []}
           onTriggerCallForPlayer={handleMasterTriggerCall}
           onTriggerImageForPlayer={handleMasterTriggerImage}
         />
@@ -681,7 +921,7 @@ function App() {
       {currentView === 'npcs' ? (
         <NpcsPanel
           onBack={openMenu}
-          onOpenCall={openCall}
+          onOpenCall={handleOpenContactEvent}
           campaignId={sessionConfig.campaignId}
           playerId={currentPlayerId}
         />

@@ -14,6 +14,7 @@ export default function DocumentsPanel({ onBack, campaignId, playerId }) {
 
   const [title, setTitle] = useState('');
   const [details, setDetails] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
   const [eventType, setEventType] = useState(EVENT_TYPES[0]);
 
   const handleBack = () => {
@@ -28,9 +29,11 @@ export default function DocumentsPanel({ onBack, campaignId, playerId }) {
       title: title.trim(),
       details: details.trim(),
       eventType,
+      imageUrl: imageUrl.trim(),
     });
     setTitle('');
     setDetails('');
+    setImageUrl('');
     setEventType(EVENT_TYPES[0]);
   };
 
@@ -59,6 +62,12 @@ export default function DocumentsPanel({ onBack, campaignId, playerId }) {
           value={details}
           onChange={(event) => setDetails(event.target.value)}
         />
+        <input
+          className="entry-input"
+          placeholder="Link da imagem (opcional)"
+          value={imageUrl}
+          onChange={(event) => setImageUrl(event.target.value)}
+        />
         <button className="mission-add-btn" onClick={handleAdd}>ADICIONAR DOCUMENTO</button>
       </div>
 
@@ -69,6 +78,7 @@ export default function DocumentsPanel({ onBack, campaignId, playerId }) {
             <div className="entry-card-title">{entry.title}</div>
             <div className="entry-tag">EVENTO: {entry.eventType?.toUpperCase()}</div>
             <div className="entry-card-text">{entry.details}</div>
+            {entry.imageUrl ? <img className="entry-image-preview" src={entry.imageUrl} alt={entry.title} /> : null}
             <button className="mission-delete-btn" onClick={() => removeEntry(entry.id)}>EXCLUIR</button>
           </div>
         ))}

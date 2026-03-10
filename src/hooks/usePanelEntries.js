@@ -67,5 +67,19 @@ export default function usePanelEntries({ campaignId, playerId, panelId, default
     setEntries((prev) => prev.filter((entry) => entry.id !== entryId));
   };
 
-  return { entries, addEntry, removeEntry };
+  const updateEntry = (entryId, updates) => {
+    setEntries((prev) =>
+      prev.map((entry) =>
+        entry.id === entryId
+          ? {
+              ...entry,
+              ...updates,
+              id: entry.id,
+            }
+          : entry
+      )
+    );
+  };
+
+  return { entries, addEntry, removeEntry, updateEntry };
 }

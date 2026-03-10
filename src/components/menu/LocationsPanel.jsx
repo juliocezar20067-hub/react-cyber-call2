@@ -3,7 +3,7 @@ import { playSound } from '../../sound/soundSystem';
 import usePanelEntries from '../../hooks/usePanelEntries';
 import './Menu.css';
 
-const EVENT_TYPES = ['texto', 'video', 'ligacao', 'intel'];
+const LOCATION_TYPES = ['regiao', 'espaco', 'estabelecimento', 'rota', 'zona de risco'];
 
 export default function LocationsPanel({ onBack, campaignId, playerId }) {
   const { entries, addEntry, removeEntry } = usePanelEntries({
@@ -15,7 +15,7 @@ export default function LocationsPanel({ onBack, campaignId, playerId }) {
   const [title, setTitle] = useState('');
   const [details, setDetails] = useState('');
   const [imageUrl, setImageUrl] = useState('');
-  const [eventType, setEventType] = useState(EVENT_TYPES[0]);
+  const [locationType, setLocationType] = useState(LOCATION_TYPES[0]);
 
   const handleBack = () => {
     playSound('button');
@@ -29,12 +29,12 @@ export default function LocationsPanel({ onBack, campaignId, playerId }) {
       title: title.trim(),
       details: details.trim(),
       imageUrl: imageUrl.trim(),
-      eventType,
+      locationType,
     });
     setTitle('');
     setDetails('');
     setImageUrl('');
-    setEventType(EVENT_TYPES[0]);
+    setLocationType(LOCATION_TYPES[0]);
   };
 
   return (
@@ -51,9 +51,9 @@ export default function LocationsPanel({ onBack, campaignId, playerId }) {
           value={title}
           onChange={(event) => setTitle(event.target.value)}
         />
-        <select className="entry-input" value={eventType} onChange={(event) => setEventType(event.target.value)}>
-          {EVENT_TYPES.map((type) => (
-            <option key={type} value={type}>Evento: {type.toUpperCase()}</option>
+        <select className="entry-input" value={locationType} onChange={(event) => setLocationType(event.target.value)}>
+          {LOCATION_TYPES.map((type) => (
+            <option key={type} value={type}>Tipo: {type.toUpperCase()}</option>
           ))}
         </select>
         <input
@@ -76,7 +76,7 @@ export default function LocationsPanel({ onBack, campaignId, playerId }) {
         {entries.map((entry) => (
           <div className="entry-card" key={entry.id}>
             <div className="entry-card-title">{entry.title}</div>
-            <div className="entry-tag">EVENTO: {entry.eventType?.toUpperCase()}</div>
+            <div className="entry-tag">TIPO: {entry.locationType?.toUpperCase()}</div>
             <div className="entry-card-text">{entry.details}</div>
             {entry.imageUrl ? (
               <a className="entry-link" href={entry.imageUrl} target="_blank" rel="noreferrer">

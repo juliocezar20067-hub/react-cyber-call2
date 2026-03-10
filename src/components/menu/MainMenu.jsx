@@ -25,6 +25,7 @@ export default function MainMenu({
   selectedPlayer,
   onSelectPlayer,
   allTracking,
+  masterContacts,
   onTriggerCallForPlayer,
   onTriggerImageForPlayer,
 }) {
@@ -35,6 +36,7 @@ export default function MainMenu({
   const [showImageTriggerForm, setShowImageTriggerForm] = useState(false);
   const [imageUrlToTrigger, setImageUrlToTrigger] = useState('');
   const [imageTitleToTrigger, setImageTitleToTrigger] = useState('');
+  const [selectedContactId, setSelectedContactId] = useState('');
   const [savedImages, setSavedImages] = useState([]);
   const [imagesHydrated, setImagesHydrated] = useState(false);
 
@@ -80,6 +82,18 @@ export default function MainMenu({
       cancelled = true;
     };
   }, [campaignId, role]);
+
+  useEffect(() => {
+    const firstContactId = masterContacts?.[0]?.id ?? '';
+    if (!masterContacts?.length) {
+      setSelectedContactId('');
+      return;
+    }
+
+    if (!masterContacts.some((contact) => contact.id === selectedContactId)) {
+      setSelectedContactId(firstContactId);
+    }
+  }, [masterContacts, selectedContactId]);
 
   useEffect(() => {
     if (role !== 'master' || !campaignId || !imagesHydrated) return;
@@ -158,8 +172,10 @@ export default function MainMenu({
   };
 
   const handleTriggerForSelectedPlayer = () => {
-    if (!selectedPlayer) return;
-    onTriggerCallForPlayer?.(selectedPlayer);
+    if (!selectedPlayer || !selectedContactId) return;
+    const selectedContact = masterContacts.find((contact) => contact.id === selectedContactId);
+    if (!selectedContact) return;
+    onTriggerCallForPlayer?.(selectedPlayer, selectedContact);
   };
 
   const handleTriggerImageForSelectedPlayer = () => {
@@ -353,6 +369,21 @@ export default function MainMenu({
             <button className="master-trigger-btn" onClick={handleTriggerForSelectedPlayer}>
               DISPARAR LIGACAO PARA {selectedPlayer}
             </button>
+            <select
+              className="entry-input"
+              value={selectedContactId}
+              onChange={(event) => {
+                playSound('button');
+                setSelectedContactId(event.target.value);
+              }}
+            >
+              <option value="">Selecione o contato da ligacao</option>
+              {(masterContacts ?? []).map((contact) => (
+                <option key={contact.id} value={contact.id}>
+                  {contact.name}
+                </option>
+              ))}
+            </select>
             <button className="master-trigger-btn" onClick={handleToggleImageForm}>
               DISPARAR IMAGEM
             </button>

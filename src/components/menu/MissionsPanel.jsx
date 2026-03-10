@@ -8,7 +8,7 @@ export default function MissionsPanel({ onBack, activeMission, completedMissions
   };
 
   return (
-    <div className="menu-shell">
+    <div className="menu-shell missions-shell">
       <div className="panel-header-row">
         <h2 className="menu-title">Missoes</h2>
         <button className="menu-back" onClick={handleBack}>VOLTAR</button>
