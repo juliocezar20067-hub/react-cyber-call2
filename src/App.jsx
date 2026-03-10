@@ -7,6 +7,7 @@ import LocationsPanel from './components/menu/LocationsPanel';
 import MissionsPanel from './components/menu/MissionsPanel';
 import DocumentsPanel from './components/menu/DocumentsPanel';
 import InventoryPanel from './components/menu/InventoryPanel';
+import ShopPanel from './components/menu/ShopPanel';
 import CharacterProfilePanel from './components/menu/CharacterProfilePanel';
 import useCallFlow from './hooks/useCallFlow';
 import { initAudioUnlock, onSoundEnded, playSound, preloadAllSounds, stopNarration, stopSound } from './sound/soundSystem';
@@ -119,6 +120,7 @@ function App() {
     openMissions,
     openDocuments,
     openInventory,
+    openShop,
     openCharacterProfile,
     openMenu,
     openCall,
@@ -1013,6 +1015,7 @@ function App() {
           onOpenNpcs={openNpcs}
           onOpenDocuments={openDocuments}
           onOpenInventory={openInventory}
+          onOpenShop={openShop}
           onOpenCharacterProfile={openCharacterProfile}
           activeMission={currentTracking.active}
           completedMissions={currentTracking.completed}
@@ -1072,6 +1075,14 @@ function App() {
           onBack={openMenu}
           campaignId={sessionConfig.campaignId}
           playerId={currentPlayerId}
+        />
+      ) : null}
+      {currentView === 'shop' ? (
+        <ShopPanel
+          onBack={openMenu}
+          playerId={currentPlayerId}
+          campaignId={sessionConfig.campaignId}
+          role={sessionConfig.role}
         />
       ) : null}
       {currentView === 'characterProfile' ? (

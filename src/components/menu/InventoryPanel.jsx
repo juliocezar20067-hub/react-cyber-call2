@@ -1,11 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { playSound } from '../../sound/soundSystem';
+import { playSound, stopSound } from '../../sound/soundSystem';
 import { setStoredState, subscribeStoredState } from '../../lib/stateStorage';
+import {
+  CATEGORY_FILTERS,
+  INVENTORY_CATEGORY_DEFAULTS,
+  PRICE_TIERS,
+  SHOP_ITEMS,
+  SOURCE_FILTERS,
+} from '../../constants/shopCatalog';
 import './Menu.css';
 
 const CELL_SIZE = 46;
 const MIN_GRID = 3;
 const MAX_GRID = 16;
+const LONG_PRESS_MS = 1000;
+const DRAG_THRESHOLD = 6;
 function itemDims(item, rotated = item.rotated) {
   return rotated ? { w: item.h, h: item.w } : { w: item.w, h: item.h };
 }
@@ -34,14 +43,19 @@ function clamp(value, min, max) {
 export default function InventoryPanel({ onBack, campaignId, playerId }) {
   const inventoryRef = useRef(null);
   const poolRef = useRef(null);
+  const baseItemIds = useMemo(() => new Set(SHOP_ITEMS.map((item) => item.id)), []);
+  const pressRef = useRef(null);
 
   const [colsInput, setColsInput] = useState('10');
   const [rowsInput, setRowsInput] = useState('6');
   const [gridCols, setGridCols] = useState(10);
   const [gridRows, setGridRows] = useState(6);
   const [items, setItems] = useState([]);
+  const [possessions, setPossessions] = useState([]);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [status, setStatus] = useState('');
+  const [catalogItems, setCatalogItems] = useState(SHOP_ITEMS);
+  const [detailItem, setDetailItem] = useState(null);
 
   const [newName, setNewName] = useState('');
   const [newW, setNewW] = useState('3');
@@ -50,6 +64,9 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
 
   const [dragPreview, setDragPreview] = useState(null);
   const dragPreviewRef = useRef(null);
+  const [gridPreview, setGridPreview] = useState(null);
+  const gridPreviewRef = useRef(null);
+  const lastGridCellRef = useRef(null);
   const [hydrated, setHydrated] = useState(false);
 
   const scope = useMemo(() => 'inventory_grid', []);
@@ -57,6 +74,38 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
   useEffect(() => {
     dragPreviewRef.current = dragPreview;
   }, [dragPreview]);
+
+  useEffect(() => {
+    gridPreviewRef.current = gridPreview;
+  }, [gridPreview]);
+
+  useEffect(() => {
+    if (!campaignId) {
+      setCatalogItems(SHOP_ITEMS);
+      return;
+    }
+
+    const unsubscribe = subscribeStoredState({
+      campaignId,
+      playerId: '__system__',
+      scope: 'shop_catalog_custom',
+      fallback: [],
+      onChange: (data) => {
+        const customItems = Array.isArray(data) ? data : [];
+        if (customItems.length === 0) {
+          setCatalogItems(SHOP_ITEMS);
+          return;
+        }
+
+        const overrides = new Map(customItems.map((item) => [item.id, item]));
+        const base = SHOP_ITEMS.map((item) => (overrides.has(item.id) ? { ...item, ...overrides.get(item.id) } : item));
+        const extra = customItems.filter((item) => !baseItemIds.has(item.id));
+        setCatalogItems([...extra, ...base]);
+      },
+    });
+
+    return unsubscribe;
+  }, [baseItemIds, campaignId]);
 
   useEffect(() => {
     if (!campaignId || !playerId) return;
@@ -67,31 +116,51 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
       scope,
       fallback: null,
       onChange: (parsed) => {
-      const cols = Number(parsed?.gridCols);
-      const rows = Number(parsed?.gridRows);
-      const loadedItems = Array.isArray(parsed?.items) ? parsed.items : [];
+        const cols = Number(parsed?.gridCols);
+        const rows = Number(parsed?.gridRows);
+        const loadedItems = Array.isArray(parsed?.items) ? parsed.items : [];
+        const loadedPossessions = Array.isArray(parsed?.possessions) ? parsed.possessions : [];
 
-      if (Number.isFinite(cols) && Number.isFinite(rows)) {
-        setGridCols(clamp(Math.floor(cols), MIN_GRID, MAX_GRID));
-        setGridRows(clamp(Math.floor(rows), MIN_GRID, MAX_GRID));
-        setColsInput(String(clamp(Math.floor(cols), MIN_GRID, MAX_GRID)));
-        setRowsInput(String(clamp(Math.floor(rows), MIN_GRID, MAX_GRID)));
-      }
+        if (Number.isFinite(cols) && Number.isFinite(rows)) {
+          setGridCols(clamp(Math.floor(cols), MIN_GRID, MAX_GRID));
+          setGridRows(clamp(Math.floor(rows), MIN_GRID, MAX_GRID));
+          setColsInput(String(clamp(Math.floor(cols), MIN_GRID, MAX_GRID)));
+          setRowsInput(String(clamp(Math.floor(rows), MIN_GRID, MAX_GRID)));
+        }
 
-      setItems(
-        loadedItems.map((item) => ({
-          id: item.id ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-          name: item.name ?? 'Item',
-          w: Math.max(1, Math.floor(item.w ?? 1)),
-          h: Math.max(1, Math.floor(item.h ?? 1)),
-          rotated: Boolean(item.rotated),
-          color: item.color ?? '#4d80ff',
-          location: item.location === 'grid' ? 'grid' : 'pool',
-          x: Number.isFinite(item.x) ? item.x : 10,
-          y: Number.isFinite(item.y) ? item.y : 10,
-        }))
-      );
-      setHydrated(true);
+        setItems(
+          loadedItems.map((item) => ({
+            id: item.id ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            itemId: item.itemId ?? '',
+            name: item.name ?? 'Item',
+            w: Math.max(1, Math.floor(item.w ?? 1)),
+            h: Math.max(1, Math.floor(item.h ?? 1)),
+            rotated: Boolean(item.rotated),
+            color: item.color ?? '#4d80ff',
+            imageUrl: item.imageUrl ?? '',
+            location: item.location === 'grid' ? 'grid' : 'pool',
+            x: Number.isFinite(item.x) ? item.x : 10,
+            y: Number.isFinite(item.y) ? item.y : 10,
+          }))
+        );
+
+        setPossessions(
+          loadedPossessions.map((entry) => ({
+            id: entry.id ?? entry.itemId ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            itemId: entry.itemId ?? entry.id ?? '',
+            name: entry.name ?? 'Item',
+            quantity: Number(entry.quantity) || 1,
+            category: entry.category ?? '',
+            priceEb: Number(entry.priceEb) || 0,
+            priceTier: entry.priceTier ?? '',
+            source: entry.source ?? '',
+            grid: entry.grid && Number(entry.grid.w) && Number(entry.grid.h)
+              ? { w: Number(entry.grid.w), h: Number(entry.grid.h) }
+              : null,
+            imageUrl: entry.imageUrl ?? '',
+          }))
+        );
+        setHydrated(true);
       },
     });
 
@@ -108,9 +177,44 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
         gridCols,
         gridRows,
         items,
+        possessions,
       },
     });
-  }, [campaignId, gridCols, gridRows, hydrated, items, playerId, scope]);
+  }, [campaignId, gridCols, gridRows, hydrated, items, playerId, possessions, scope]);
+
+  useEffect(() => {
+    const handlePressMove = (event) => {
+      const press = pressRef.current;
+      if (!press || dragPreview) return;
+
+      const dx = event.clientX - press.startX;
+      const dy = event.clientY - press.startY;
+      const distance = Math.hypot(dx, dy);
+      if (distance < DRAG_THRESHOLD) return;
+
+      if (press.timerId) {
+        clearTimeout(press.timerId);
+      }
+      pressRef.current = null;
+      startDragFrom(press.element, event, press.item);
+    };
+
+    const handlePressUp = () => {
+      const press = pressRef.current;
+      if (!press) return;
+      if (press.timerId) {
+        clearTimeout(press.timerId);
+      }
+      pressRef.current = null;
+    };
+
+    window.addEventListener('mousemove', handlePressMove);
+    window.addEventListener('mouseup', handlePressUp);
+    return () => {
+      window.removeEventListener('mousemove', handlePressMove);
+      window.removeEventListener('mouseup', handlePressUp);
+    };
+  }, [dragPreview]);
 
   useEffect(() => {
     if (!dragPreview) return undefined;
@@ -138,7 +242,10 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
 
       const item = items.find((entry) => entry.id === preview.itemId);
       if (!item) {
+        stopSound('inventoryMove');
         setDragPreview(null);
+        setGridPreview(null);
+        lastGridCellRef.current = null;
         return;
       }
 
@@ -195,7 +302,11 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
         );
       }
 
+      stopSound('inventoryMove');
+      playSound('inventoryDrop', { volume: 0.8 });
       setDragPreview(null);
+      setGridPreview(null);
+      lastGridCellRef.current = null;
     };
 
     document.addEventListener('mousemove', handleMove);
@@ -209,11 +320,32 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
     };
   }, [dragPreview, gridCols, gridRows, items]);
 
+  useEffect(() => {
+    if (!dragPreview) {
+      stopSound('inventoryMove');
+      setGridPreview(null);
+      lastGridCellRef.current = null;
+    }
+  }, [dragPreview]);
+
+  useEffect(() => () => {
+    stopSound('inventoryMove');
+  }, []);
+
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null;
+  const findLabel = (list, id) => list.find((item) => item.id === id)?.label ?? id;
 
   const handleBack = () => {
     playSound('button');
     onBack();
+  };
+
+  const handleOpenItemDetails = (item) => {
+    if (!item?.itemId) return;
+    const shopItem = catalogItems.find((entry) => entry.id === item.itemId);
+    if (!shopItem) return;
+    playSound('button');
+    setDetailItem(shopItem);
   };
 
   const handleApplyGrid = () => {
@@ -278,6 +410,77 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
     setStatus('Item removido.');
   };
 
+  const handleClearInventory = () => {
+    playSound('button');
+    setItems([]);
+    setPossessions([]);
+    setSelectedItemId(null);
+    setDragPreview(null);
+    setGridPreview(null);
+    lastGridCellRef.current = null;
+    setStatus('Inventario limpo.');
+  };
+
+  const handleSellPossession = (entry) => {
+    if (!entry) return;
+    playSound('button');
+    setPossessions((prev) => {
+      const targetIndex = prev.findIndex((item) => item.id === entry.id);
+      if (targetIndex < 0) return prev;
+      const target = prev[targetIndex];
+      const currentQty = Number(target.quantity) || 1;
+      if (currentQty > 1) {
+        return prev.map((item) =>
+          item.id === entry.id ? { ...item, quantity: currentQty - 1 } : item
+        );
+      }
+      return prev.filter((item) => item.id !== entry.id);
+    });
+    setStatus(`Item vendido: ${entry.name}`);
+  };
+
+  const handleAddPossession = (entry) => {
+    if (!entry) return;
+    playSound('button');
+
+    setPossessions((prev) =>
+      prev.map((item) =>
+        item.id === entry.id
+          ? { ...item, quantity: (Number(item.quantity) || 1) + 1 }
+          : item
+      )
+    );
+
+    const catalogItem = entry.itemId ? catalogItems.find((item) => item.id === entry.itemId) : null;
+    const categoryId = catalogItem?.category ?? null;
+    const gridConfig =
+      entry.grid ||
+      catalogItem?.grid ||
+      (categoryId ? INVENTORY_CATEGORY_DEFAULTS[categoryId] : null);
+
+    if (gridConfig) {
+      setItems((prev) => {
+        const index = prev.length;
+        const nextItem = {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          itemId: entry.itemId ?? '',
+          name: entry.name ?? 'Item',
+          w: gridConfig.w,
+          h: gridConfig.h,
+          rotated: false,
+          color: catalogItem?.color ?? gridConfig.color ?? '#4d80ff',
+          imageUrl: entry.imageUrl ?? catalogItem?.imageUrl ?? '',
+          location: 'pool',
+          x: 10 + (index % 4) * 14,
+          y: 10 + (index % 6) * 14,
+        };
+        return [...prev, nextItem];
+      });
+    }
+
+    setStatus(`Item adicionado: ${entry.name}`);
+  };
+
   const handleRotateSelected = () => {
     if (!selectedItem) return;
 
@@ -297,12 +500,11 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
     );
   };
 
-  const startDrag = (event, item) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-
-    const rect = event.currentTarget.getBoundingClientRect();
+  const startDragFrom = (element, event, item) => {
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
     setSelectedItemId(item.id);
+    playSound('inventoryPick', { volume: 0.85 });
     setDragPreview({
       itemId: item.id,
       offsetX: event.clientX - rect.left,
@@ -319,6 +521,94 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
     });
   };
 
+  const handleItemMouseDown = (event, item) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    setSelectedItemId(item.id);
+
+    const hasDetails = Boolean(item.itemId && catalogItems.find((entry) => entry.id === item.itemId));
+    if (pressRef.current?.timerId) {
+      clearTimeout(pressRef.current.timerId);
+    }
+
+    const timerId = hasDetails
+      ? window.setTimeout(() => {
+          pressRef.current = null;
+          handleOpenItemDetails(item);
+        }, LONG_PRESS_MS)
+      : null;
+
+    pressRef.current = {
+      item,
+      element: event.currentTarget,
+      startX: event.clientX,
+      startY: event.clientY,
+      timerId,
+    };
+  };
+
+  useEffect(() => {
+    if (!dragPreview) {
+      setGridPreview(null);
+      lastGridCellRef.current = null;
+      return;
+    }
+
+    const item = items.find((entry) => entry.id === dragPreview.itemId);
+    if (!item) {
+      setGridPreview(null);
+      lastGridCellRef.current = null;
+      return;
+    }
+
+    const dims = itemDims(item, dragPreview.rotation);
+    const invRect = inventoryRef.current?.getBoundingClientRect();
+    if (!invRect) {
+      setGridPreview(null);
+      lastGridCellRef.current = null;
+      return;
+    }
+
+    const isInside =
+      dragPreview.mouseX >= invRect.left &&
+      dragPreview.mouseX <= invRect.right &&
+      dragPreview.mouseY >= invRect.top &&
+      dragPreview.mouseY <= invRect.bottom;
+
+    if (!isInside) {
+      setGridPreview(null);
+      lastGridCellRef.current = null;
+      return;
+    }
+
+    const dropX = dragPreview.mouseX - dragPreview.offsetX;
+    const dropY = dragPreview.mouseY - dragPreview.offsetY;
+    const relX = dropX - invRect.left;
+    const relY = dropY - invRect.top;
+    const gridX = Math.round(relX / CELL_SIZE);
+    const gridY = Math.round(relY / CELL_SIZE);
+    const valid = isValidPlacement(items, item.id, gridX, gridY, dims.w, dims.h, gridCols, gridRows);
+
+    const lastCell = lastGridCellRef.current;
+    if (!lastCell || lastCell.x !== gridX || lastCell.y !== gridY) {
+      playSound('inventoryMove', { volume: 0.4, reset: true });
+      lastGridCellRef.current = { x: gridX, y: gridY };
+    }
+
+    setGridPreview((prev) => {
+      if (prev && prev.x === gridX && prev.y === gridY && prev.w === dims.w && prev.h === dims.h && prev.valid === valid) {
+        return prev;
+      }
+      return {
+        x: gridX,
+        y: gridY,
+        w: dims.w,
+        h: dims.h,
+        valid,
+      };
+    });
+  }, [dragPreview, gridCols, gridRows, items]);
+
   const renderItem = (item) => {
     if (dragPreview?.itemId === item.id) return null;
     const dims = itemDims(item);
@@ -327,18 +617,26 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
       height: `${dims.h * CELL_SIZE}px`,
       left: `${item.x}px`,
       top: `${item.y}px`,
-      background: item.color,
+      background: item.imageUrl ? 'transparent' : item.color,
       zIndex: selectedItemId === item.id ? 3 : 1,
     };
-
+    const rotation = item.rotated ? 'rotate(90deg)' : 'none';
     return (
       <div
         key={item.id}
-        className={`re4-item ${selectedItemId === item.id ? 'is-selected' : ''}`}
-        onMouseDown={(event) => startDrag(event, item)}
+        className={`re4-item ${selectedItemId === item.id ? 'is-selected' : ''} ${item.imageUrl ? 'has-image' : ''}`}
+        onMouseDown={(event) => handleItemMouseDown(event, item)}
         onClick={() => handleSelectItem(item.id)}
         style={style}
       >
+        {item.imageUrl ? (
+          <img
+            className="re4-item-image"
+            src={item.imageUrl}
+            alt={item.name}
+            style={{ transform: rotation }}
+          />
+        ) : null}
         <span className="re4-item-label">{item.name}</span>
       </div>
     );
@@ -387,10 +685,42 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
         <div className="inventory-toolbar-row">
           <button className="mission-action-btn edit" onClick={handleRotateSelected}>ROTACIONAR ITEM (R)</button>
           <button className="mission-action-btn delete" onClick={handleDeleteSelected}>EXCLUIR ITEM</button>
+          <button className="mission-action-btn delete" onClick={handleClearInventory}>LIMPAR INVENTARIO</button>
           <div className="inventory-status">
             {status || `Grid ${gridCols}x${gridRows} | Itens: ${items.length}`}
           </div>
         </div>
+      </div>
+
+      <div className="inventory-possessions">
+        <div className="inventory-possessions-title">Posses</div>
+        {possessions.length === 0 ? (
+          <div className="inventory-possessions-empty">Nenhum item comprado ainda.</div>
+        ) : (
+          <div className="inventory-possessions-list">
+            {possessions.map((entry) => (
+              <div className="inventory-possession-item" key={entry.id}>
+                <div className="inventory-possession-main">
+                  <div className="inventory-possession-name">{entry.name}</div>
+                  <div className="inventory-possession-meta">
+                    Qtd: {entry.quantity} - {entry.category || '---'}
+                  </div>
+                </div>
+                <div className="inventory-possession-actions">
+                  <div className="inventory-possession-meta">
+                    {entry.grid ? `Grid: ${entry.grid.w}x${entry.grid.h}` : 'Grid: --'}
+                  </div>
+                  <button className="inventory-possession-add" onClick={() => handleAddPossession(entry)}>
+                    + ADICIONAR
+                  </button>
+                  <button className="inventory-possession-sell" onClick={() => handleSellPossession(entry)}>
+                    VENDER
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="re4-layout">
@@ -403,6 +733,17 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
             backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`,
           }}
         >
+          {gridPreview ? (
+            <div
+              className={`re4-grid-preview ${gridPreview.valid ? 'is-valid' : 'is-invalid'}`}
+              style={{
+                width: `${gridPreview.w * CELL_SIZE}px`,
+                height: `${gridPreview.h * CELL_SIZE}px`,
+                left: `${gridPreview.x * CELL_SIZE}px`,
+                top: `${gridPreview.y * CELL_SIZE}px`,
+              }}
+            />
+          ) : null}
           {items
             .filter((item) => item.location === 'grid')
             .map((item) =>
@@ -427,10 +768,44 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
             height: `${dragDims.h * CELL_SIZE}px`,
             left: `${dragPreview.mouseX - dragPreview.offsetX}px`,
             top: `${dragPreview.mouseY - dragPreview.offsetY}px`,
-            background: dragItem.color,
+            background: dragItem.imageUrl ? 'transparent' : dragItem.color,
           }}
         >
+          {dragItem.imageUrl ? (
+            <img
+              className="re4-item-image"
+              src={dragItem.imageUrl}
+              alt={dragItem.name}
+              style={{ transform: dragPreview.rotation ? 'rotate(90deg)' : 'none' }}
+            />
+          ) : null}
           <span className="re4-item-label">{dragItem.name}</span>
+        </div>
+      ) : null}
+
+      {detailItem ? (
+        <div className="inventory-detail-overlay" onClick={() => setDetailItem(null)}>
+          <div className="inventory-detail-card" onClick={(event) => event.stopPropagation()}>
+            <div className="inventory-detail-header">
+              <div className="inventory-detail-title">{detailItem.name}</div>
+              <button className="mission-action-btn delete" onClick={() => setDetailItem(null)}>FECHAR</button>
+            </div>
+            {detailItem.imageUrl ? (
+              <img className="inventory-detail-image" src={detailItem.imageUrl} alt={detailItem.name} />
+            ) : null}
+            <div className="inventory-detail-meta">
+              {findLabel(CATEGORY_FILTERS, detailItem.category)}{detailItem.source ? ` - ${findLabel(SOURCE_FILTERS, detailItem.source)}` : ''}
+            </div>
+            <div className="inventory-detail-meta">
+              Preco: E$ {detailItem.priceEb} {detailItem.priceNote ? `(${detailItem.priceNote})` : ''}
+            </div>
+            {detailItem.grid ? (
+              <div className="inventory-detail-meta">Grid: {detailItem.grid.w}x{detailItem.grid.h}</div>
+            ) : null}
+            {detailItem.description ? (
+              <div className="inventory-detail-desc">{detailItem.description}</div>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>
