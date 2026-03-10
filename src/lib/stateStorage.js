@@ -85,6 +85,37 @@ export async function getStoredState({ campaignId, playerId, scope, fallback }) 
   return fallback;
 }
 
+export async function storedStateExists({ campaignId, playerId, scope }) {
+  const key = localStateKey(campaignId, playerId, scope);
+
+  if (!cloudEnabled()) {
+    return inMemoryState.has(key);
+  }
+
+  const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/app_state`);
+  url.searchParams.set('select', 'id');
+  url.searchParams.set('campaign_id', `eq.${campaignId}`);
+  url.searchParams.set('player_id', `eq.${playerId}`);
+  url.searchParams.set('scope', `eq.${scope}`);
+  url.searchParams.set('limit', '1');
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Falha ao consultar Supabase (${response.status}): ${text || 'erro desconhecido'}`);
+  }
+
+  const json = await response.json();
+  return Array.isArray(json) && json.length > 0;
+}
+
 export function setStoredState({ campaignId, playerId, scope, data }) {
   const key = localStateKey(campaignId, playerId, scope);
   inMemoryState.set(key, data);

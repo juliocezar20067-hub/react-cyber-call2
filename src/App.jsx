@@ -22,7 +22,7 @@ import {
   MISSION_SUMMARY,
   MISSION_TITLE,
 } from './constants/ui';
-import { getStoredState, isCloudConfigured, setStoredState, subscribeStoredState, testCloudConnection } from './lib/stateStorage';
+import { getStoredState, isCloudConfigured, setStoredState, storedStateExists, subscribeStoredState, testCloudConnection } from './lib/stateStorage';
 import './App.css';
 
 const CAMPAIGN_AUTH_SCOPE = 'campaign_auth_v1';
@@ -57,6 +57,7 @@ function createMissionPayload() {
     npc: MISSION_NPC,
     summary: MISSION_SUMMARY,
     clue: MISSION_CLUE,
+    attachments: [],
   };
 }
 
@@ -146,6 +147,7 @@ function App() {
 
   const [trackingByPlayer, setTrackingByPlayer] = useState({});
   const [showMissionDecision, setShowMissionDecision] = useState(false);
+  const [showMissionPopup, setShowMissionPopup] = useState(false);
 
   const [audioReady, setAudioReady] = useState(false);
   const [experienceStarted, setExperienceStarted] = useState(false);
@@ -157,6 +159,7 @@ function App() {
   const [trackingHydrated, setTrackingHydrated] = useState(false);
   const consumedCallTriggerRef = useRef('');
   const consumedImageTriggerRef = useRef('');
+  const consumedMissionTriggerRef = useRef('');
   const lastTerminalTypeAtRef = useRef(0);
   const bootTimerRef = useRef(null);
   const bootIntervalRef = useRef(null);
@@ -299,42 +302,37 @@ function App() {
   useEffect(() => {
     if (currentView !== 'call') {
       stopNarration();
-      setShowMissionDecision(false);
     }
   }, [currentView]);
 
   useEffect(() => {
     if (!sessionConfig) return;
 
-    let cancelled = false;
     setTrackingHydrated(false);
-    const loaded = {};
-    const playersToLoad = sessionConfig.role === 'master' ? campaignPlayers : [sessionConfig.playerId];
-    Promise.all(
-      playersToLoad.map(async (playerId) => {
-        const state = await getStoredState({
-          campaignId: sessionConfig.campaignId,
-          playerId,
-          scope: 'mission_tracking',
-          fallback: createDefaultTracking(),
-        });
-        return [playerId, state];
+    const playersToWatch = sessionConfig.role === 'master' ? campaignPlayers : [sessionConfig.playerId];
+
+    const unsubscribers = playersToWatch.map((playerId) =>
+      subscribeStoredState({
+        campaignId: sessionConfig.campaignId,
+        playerId,
+        scope: 'mission_tracking',
+        fallback: createDefaultTracking(),
+        onChange: (state) => {
+          setTrackingByPlayer((prev) => ({
+            ...prev,
+            [playerId]: {
+              active: state?.active ?? null,
+              completed: Array.isArray(state?.completed) ? state.completed : [],
+              denied: Array.isArray(state?.denied) ? state.denied : [],
+            },
+          }));
+          setTrackingHydrated(true);
+        },
       })
-    ).then((entries) => {
-      if (cancelled) return;
-      for (const [playerId, state] of entries) {
-        loaded[playerId] = {
-          active: state?.active ?? null,
-          completed: Array.isArray(state?.completed) ? state.completed : [],
-          denied: Array.isArray(state?.denied) ? state.denied : [],
-        };
-      }
-      setTrackingByPlayer(loaded);
-      setTrackingHydrated(true);
-    });
+    );
 
     return () => {
-      cancelled = true;
+      for (const unsub of unsubscribers) unsub();
     };
   }, [campaignPlayers, sessionConfig]);
 
@@ -376,11 +374,15 @@ function App() {
     if (!sessionConfig || sessionConfig.role !== 'player' || !sessionConfig.playerId) {
       consumedCallTriggerRef.current = '';
       consumedImageTriggerRef.current = '';
+      consumedMissionTriggerRef.current = '';
+      setShowMissionPopup(false);
+      setShowMissionDecision(false);
       return;
     }
 
     let firstCallEvent = true;
     let firstImageEvent = true;
+    let firstMissionEvent = true;
 
     const unsubscribeCall = subscribeStoredState({
       campaignId: sessionConfig.campaignId,
@@ -435,9 +437,35 @@ function App() {
       },
     });
 
+    const unsubscribeMission = subscribeStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId: sessionConfig.playerId,
+      scope: 'event_mission_offer',
+      fallback: null,
+      onChange: (parsed) => {
+        const triggerId = parsed?.id ?? '';
+        if (!triggerId) return;
+
+        if (firstMissionEvent) {
+          consumedMissionTriggerRef.current = triggerId;
+          firstMissionEvent = false;
+          return;
+        }
+
+        if (consumedMissionTriggerRef.current === triggerId) return;
+        consumedMissionTriggerRef.current = triggerId;
+        if (parsed?.mission) {
+          setPendingMissionOffer(parsed.mission);
+          setShowMissionPopup(true);
+          setShowMissionDecision(false);
+        }
+      },
+    });
+
     return () => {
       unsubscribeCall();
       unsubscribeImage();
+      unsubscribeMission();
     };
   }, [openIncoming, sessionConfig]);
 
@@ -478,55 +506,104 @@ function App() {
     });
   };
 
+  const persistTrackingForPlayer = (playerId, tracking) => {
+    if (!sessionConfig) return;
+    setStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId,
+      scope: 'mission_tracking',
+      data: tracking,
+    });
+  };
+
   const handleAcceptMission = () => {
     playSound('button');
-    updateTrackingForPlayer(currentPlayerId, (current) => ({
-      ...current,
-      active: pendingMissionOffer ?? createMissionPayload(),
-    }));
+    updateTrackingForPlayer(currentPlayerId, (current) => {
+      const updated = {
+        ...current,
+        active: pendingMissionOffer ?? createMissionPayload(),
+      };
+      persistTrackingForPlayer(currentPlayerId, updated);
+      return updated;
+    });
     setShowMissionDecision(false);
+    setShowMissionPopup(false);
   };
 
   const handleDenyMission = () => {
     playSound('button');
-    updateTrackingForPlayer(currentPlayerId, (current) => ({
-      ...current,
-      denied: [pendingMissionOffer ?? createMissionPayload(), ...(current.denied ?? [])].slice(0, 6),
-    }));
+    updateTrackingForPlayer(currentPlayerId, (current) => {
+      const updated = {
+        ...current,
+        denied: [pendingMissionOffer ?? createMissionPayload(), ...(current.denied ?? [])].slice(0, 6),
+      };
+      persistTrackingForPlayer(currentPlayerId, updated);
+      return updated;
+    });
     setShowMissionDecision(false);
+    setShowMissionPopup(false);
   };
 
   const handleCompleteMission = () => {
     playSound('button');
     updateTrackingForPlayer(currentPlayerId, (current) => {
       if (!current.active) return current;
-      return {
+      const updated = {
         ...current,
         active: null,
         completed: [current.active, ...(current.completed ?? [])].slice(0, 6),
       };
+      persistTrackingForPlayer(currentPlayerId, updated);
+      return updated;
     });
   };
 
   const handleDeleteMission = () => {
     playSound('button');
-    updateTrackingForPlayer(currentPlayerId, (current) => ({
-      ...current,
-      active: null,
-    }));
+    updateTrackingForPlayer(currentPlayerId, (current) => {
+      const updated = { ...current, active: null };
+      persistTrackingForPlayer(currentPlayerId, updated);
+      return updated;
+    });
+  };
+
+  const handleAddDeniedMission = (mission) => {
+    playSound('button');
+    updateTrackingForPlayer(currentPlayerId, (current) => {
+      const updated = {
+        ...current,
+        denied: [mission ?? createMissionPayload(), ...(current.denied ?? [])].slice(0, 12),
+      };
+      persistTrackingForPlayer(currentPlayerId, updated);
+      return updated;
+    });
+  };
+
+  const handleRemoveDeniedMission = (index) => {
+    playSound('button');
+    updateTrackingForPlayer(currentPlayerId, (current) => {
+      const updated = {
+        ...current,
+        denied: (current.denied ?? []).filter((_, deniedIndex) => deniedIndex !== index),
+      };
+      persistTrackingForPlayer(currentPlayerId, updated);
+      return updated;
+    });
   };
 
   const handleUpdateMission = (updates) => {
     playSound('button');
     updateTrackingForPlayer(currentPlayerId, (current) => {
       if (!current.active) return current;
-      return {
+      const updated = {
         ...current,
         active: {
           ...current.active,
           ...updates,
         },
       };
+      persistTrackingForPlayer(currentPlayerId, updated);
+      return updated;
     });
   };
 
@@ -592,7 +669,7 @@ function App() {
     setCreatePlayers((prev) => prev.filter((_, playerIndex) => playerIndex !== index));
   };
 
-  const handleCreateCampaign = () => {
+  const handleCreateCampaign = async () => {
     const campaignId = createCampaignId.trim();
     const masterUser = createMasterUser.trim();
     const masterPass = createMasterPassword;
@@ -611,6 +688,21 @@ function App() {
 
     if (!campaignId || !masterUser || !masterPass) {
       setLoginError('Preencha campanha, usuario mestre e senha mestre.');
+      return;
+    }
+
+    try {
+      const exists = await storedStateExists({
+        campaignId,
+        playerId: '__system__',
+        scope: CAMPAIGN_AUTH_SCOPE,
+      });
+      if (exists) {
+        setLoginError('Essa campanha ja existe. Escolha outro ID.');
+        return;
+      }
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Falha ao verificar campanha no Supabase.');
       return;
     }
 
@@ -682,6 +774,27 @@ function App() {
       campaignId: sessionConfig.campaignId,
       playerId: targetPlayerId,
       scope: 'event_image_trigger',
+      data: payload,
+    });
+  };
+
+  const handleMasterOfferMission = (targetPlayerId, mission) => {
+    if (!sessionConfig || sessionConfig.role !== 'master' || !targetPlayerId || !mission) {
+      return;
+    }
+
+    playSound('button');
+    const payload = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createdAt: Date.now(),
+      source: 'master',
+      targetPlayerId,
+      mission,
+    };
+    setStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId: targetPlayerId,
+      scope: 'event_mission_offer',
       data: payload,
     });
   };
@@ -865,6 +978,7 @@ function App() {
                 <div className="campaign-create-hint">
                   Dica: use players no formato <code>404:senha,Soren:senha</code>.
                 </div>
+                {loginError ? <div className="session-error">{loginError}</div> : null}
               </div>
             </div>
           </div>
@@ -939,6 +1053,11 @@ function App() {
           activeMission={currentTracking.active}
           completedMissions={currentTracking.completed}
           deniedMissions={currentTracking.denied}
+          campaignId={sessionConfig.campaignId}
+          playerId={currentPlayerId}
+          role={sessionConfig.role}
+          onSendQueuedMission={(mission, targetPlayerId) => handleMasterOfferMission(targetPlayerId, mission)}
+          onRemoveDeniedMission={handleRemoveDeniedMission}
         />
       ) : null}
       {currentView === 'documents' ? (
@@ -968,6 +1087,76 @@ function App() {
               </button>
             </div>
             <img src={imagePopup.imageUrl} alt={imagePopup.title} className="image-popup-image" />
+          </div>
+        </div>
+      ) : null}
+      {showMissionPopup && pendingMissionOffer ? (
+        <div className="mission-popup-overlay" onClick={() => setShowMissionPopup(false)}>
+          <div className="mission-popup-card" onClick={(event) => event.stopPropagation()}>
+            <div className="mission-popup-header">
+              <div className="mission-popup-title">Nova Missao</div>
+              <button className="mission-popup-close" onClick={() => setShowMissionPopup(false)}>
+                FECHAR
+              </button>
+            </div>
+            <div className="mission-popup-body">
+              <div className="mission-popup-line mission-popup-title-text">{pendingMissionOffer.title}</div>
+              {pendingMissionOffer.summary ? (
+                <div className="mission-popup-line">{pendingMissionOffer.summary}</div>
+              ) : null}
+              {pendingMissionOffer.npc ? (
+                <div className="mission-popup-meta">NPC: {pendingMissionOffer.npc}</div>
+              ) : null}
+              {pendingMissionOffer.clue ? (
+                <div className="mission-popup-meta">Pista: {pendingMissionOffer.clue}</div>
+              ) : null}
+              {pendingMissionOffer.attachments?.length ? (
+                <div className="mission-popup-attachments">
+                  {pendingMissionOffer.attachments.map((att, index) => {
+                    const type = (att.type || '').toLowerCase();
+                    if (type === 'imagem' || type === 'image') {
+                      return (
+                        <div key={`${att.url}-${index}`} className="mission-popup-attachment">
+                          {att.label ? <div className="mission-popup-attachment-label">{att.label}</div> : null}
+                          <img
+                            src={att.url}
+                            alt={att.label || 'Anexo'}
+                            className="mission-popup-attachment-image"
+                          />
+                        </div>
+                      );
+                    }
+                    if (type === 'audio') {
+                      return (
+                        <div key={`${att.url}-${index}`} className="mission-popup-attachment">
+                          {att.label ? <div className="mission-popup-attachment-label">{att.label}</div> : null}
+                          <audio controls src={att.url} className="mission-popup-attachment-audio" />
+                        </div>
+                      );
+                    }
+                    return (
+                      <a
+                        key={`${att.url}-${index}`}
+                        className="mission-popup-attachment"
+                        href={att.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        [{att.type || 'anexo'}] {att.label || att.url}
+                      </a>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+            <div className="mission-popup-actions">
+              <button className="mission-action-btn complete" onClick={handleAcceptMission}>
+                ACEITAR
+              </button>
+              <button className="mission-action-btn delete" onClick={handleDenyMission}>
+                NEGAR
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

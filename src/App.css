@@ -490,6 +490,115 @@ body::before {
   background: #020202;
 }
 
+.mission-popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 230;
+  padding: 14px;
+}
+
+.mission-popup-card {
+  width: min(520px, 94vw);
+  border: 1px solid rgba(120, 226, 255, 0.5);
+  background: rgba(4, 8, 10, 0.95);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mission-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mission-popup-title {
+  color: var(--cp-cyan);
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.mission-popup-close {
+  border: 1px solid rgba(255, 58, 58, 0.6);
+  background: transparent;
+  color: var(--cp-cyan);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.mission-popup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--cp-cyan);
+}
+
+.mission-popup-title-text {
+  font-weight: 700;
+  color: var(--cp-cyan);
+}
+
+.mission-popup-meta {
+  color: rgba(120, 226, 255, 0.85);
+  font-size: 0.88rem;
+}
+
+.mission-popup-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.mission-popup-attachment {
+  color: var(--cp-cyan);
+  font-size: 0.86rem;
+  text-decoration: none;
+  border: 1px solid rgba(120, 226, 255, 0.3);
+  background: rgba(120, 226, 255, 0.04);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mission-popup-attachment:hover {
+  color: #bdf4ff;
+  border-color: rgba(120, 226, 255, 0.6);
+}
+
+.mission-popup-attachment-label {
+  color: var(--cp-cyan);
+  font-size: 0.8rem;
+  letter-spacing: 0.4px;
+}
+
+.mission-popup-attachment-image {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border: 1px solid rgba(120, 226, 255, 0.35);
+  background: #020202;
+}
+
+.mission-popup-attachment-audio {
+  width: 100%;
+}
+
+.mission-popup-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 768px) {
   body {
     align-items: center;

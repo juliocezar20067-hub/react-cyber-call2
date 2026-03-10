@@ -6,6 +6,8 @@ let unlockInitialized = false;
 let glitchSoundPlayCount = 0;
 let audioContext = null;
 let narrationChainReady = false;
+let externalNarrationAudio = null;
+const endedHandlers = new Map();
 
 function getAudio(soundKey) {
   const src = SOUND_FILES[soundKey];
@@ -21,8 +23,20 @@ function getAudio(soundKey) {
   return audioCache.get(soundKey);
 }
 
-function resolveAudioSrc(src) {
-  if (typeof src === 'string' && src.includes('drive.google.com')) {
+function resolveAudioSrc(rawSrc) {
+  if (!rawSrc) return '';
+  if (typeof rawSrc !== 'string') return rawSrc;
+
+  let src = rawSrc.trim();
+  if (!src) return '';
+  if (
+    (src.startsWith('"') && src.endsWith('"')) ||
+    (src.startsWith("'") && src.endsWith("'"))
+  ) {
+    src = src.slice(1, -1).trim();
+  }
+
+  if (src.includes('drive.google.com')) {
     try {
       const directByPath = src.match(/\/file\/d\/([^/]+)/i);
       if (directByPath?.[1]) {
@@ -143,11 +157,47 @@ export async function playSound(soundKey, { volume = 1, loop = false, reset = tr
     return false;
   }
 
+  const desiredSrc = src ? resolveAudioSrc(src) : resolveAudioSrc(SOUND_FILES[soundKey]);
+
+  if (soundKey === 'narration' && desiredSrc) {
+    let isExternal = false;
+    try {
+      const url = new URL(desiredSrc, window.location.href);
+      isExternal = url.origin !== window.location.origin;
+    } catch {
+      isExternal = true;
+    }
+
+    if (isExternal) {
+      if (externalNarrationAudio) {
+        externalNarrationAudio.pause();
+        externalNarrationAudio.currentTime = 0;
+      }
+      const audio = new Audio(desiredSrc);
+      audio.preload = 'auto';
+      audio.volume = volume;
+      audio.loop = loop;
+      externalNarrationAudio = audio;
+      audio.onended = () => {
+        const handlers = endedHandlers.get(soundKey);
+        if (handlers) {
+          for (const handler of handlers) handler();
+        }
+      };
+      try {
+        audio.load();
+        await audio.play();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
   const audio = getAudio(soundKey);
   if (!audio) return false;
   audio.crossOrigin = 'anonymous';
 
-  const desiredSrc = src ? resolveAudioSrc(src) : resolveAudioSrc(SOUND_FILES[soundKey]);
   if (desiredSrc && audio.src !== desiredSrc) {
     audio.src = desiredSrc;
     audio.load();
@@ -159,10 +209,21 @@ export async function playSound(soundKey, { volume = 1, loop = false, reset = tr
 
   try {
     if (soundKey === 'narration') {
-      setupNarrationFilter(audio);
-      const context = getAudioContext();
-      if (context?.state === 'suspended') {
-        await context.resume();
+      let canFilter = true;
+      if (desiredSrc) {
+        try {
+          const url = new URL(desiredSrc, window.location.href);
+          canFilter = url.origin === window.location.origin;
+        } catch {
+          canFilter = false;
+        }
+      }
+      if (canFilter) {
+        setupNarrationFilter(audio);
+        const context = getAudioContext();
+        if (context?.state === 'suspended') {
+          await context.resume();
+        }
       }
     }
 
@@ -223,6 +284,10 @@ export function stopSound(soundKey) {
 
 export function stopNarration() {
   stopSound('narration');
+  if (externalNarrationAudio) {
+    externalNarrationAudio.pause();
+    externalNarrationAudio.currentTime = 0;
+  }
 }
 
 export function resetGlitchSoundCounter() {
@@ -235,8 +300,15 @@ export function onSoundEnded(soundKey, handler) {
     return () => {};
   }
 
+  if (!endedHandlers.has(soundKey)) {
+    endedHandlers.set(soundKey, new Set());
+  }
+  const handlers = endedHandlers.get(soundKey);
+  handlers.add(handler);
+
   audio.addEventListener('ended', handler);
   return () => {
     audio.removeEventListener('ended', handler);
+    handlers.delete(handler);
   };
 }
