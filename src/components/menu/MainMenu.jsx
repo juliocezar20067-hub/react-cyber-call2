@@ -29,6 +29,11 @@ export default function MainMenu({
   masterContacts,
   onTriggerCallForPlayer,
   onTriggerImageForPlayer,
+  joinRequests,
+  onAcceptJoinRequest,
+  onDenyJoinRequest,
+  campaignBackground,
+  onSaveCampaignBackground,
 }) {
   const [isEditingMission, setIsEditingMission] = useState(false);
   const [editTitle, setEditTitle] = useState('');
@@ -40,6 +45,11 @@ export default function MainMenu({
   const [selectedContactId, setSelectedContactId] = useState('');
   const [savedImages, setSavedImages] = useState([]);
   const [imagesHydrated, setImagesHydrated] = useState(false);
+  const [showBackgroundEditor, setShowBackgroundEditor] = useState(false);
+  const [backgroundInput, setBackgroundInput] = useState('');
+  const [backgroundDim, setBackgroundDim] = useState('0');
+  const [backgroundBlur, setBackgroundBlur] = useState('0');
+  const pendingRequests = Array.isArray(joinRequests) ? joinRequests : [];
 
   useEffect(() => {
     if (!activeMission) {
@@ -218,6 +228,28 @@ export default function MainMenu({
     setShowImageTriggerForm((prev) => !prev);
   };
 
+  const handleOpenBackgroundEditor = () => {
+    playSound('button');
+    setBackgroundInput(campaignBackground?.url || '');
+    setBackgroundDim(String(campaignBackground?.dim ?? 0));
+    setBackgroundBlur(String(campaignBackground?.blur ?? 0));
+    setShowBackgroundEditor(true);
+  };
+
+  const handleCloseBackgroundEditor = () => {
+    playSound('button');
+    setShowBackgroundEditor(false);
+  };
+
+  const handleSaveBackground = () => {
+    onSaveCampaignBackground?.({
+      url: backgroundInput.trim(),
+      dim: Number(backgroundDim) || 0,
+      blur: Number(backgroundBlur) || 0,
+    });
+    setShowBackgroundEditor(false);
+  };
+
   const handleSaveImagePreset = () => {
     if (!imageUrlToTrigger.trim()) return;
     playSound('button');
@@ -251,6 +283,77 @@ export default function MainMenu({
 
   return (
     <div className="menu-layout">
+      {role === 'master' ? (
+        <>
+          <button className="master-bg-btn" onClick={handleOpenBackgroundEditor}>
+            FUNDO
+          </button>
+          {showBackgroundEditor ? (
+            <div className="master-image-overlay" onClick={handleCloseBackgroundEditor}>
+              <div className="master-image-modal" onClick={(event) => event.stopPropagation()}>
+                <div className="master-image-title">Trocar background</div>
+                <input
+                  className="entry-input"
+                  placeholder="Link da imagem ou GIF"
+                  value={backgroundInput}
+                  onChange={(event) => setBackgroundInput(event.target.value)}
+                />
+                {backgroundInput.trim() ? (
+                  <img
+                    className="background-preview"
+                    src={backgroundInput.trim()}
+                    alt="Preview do background"
+                  />
+                ) : (
+                  <div className="placeholder-box">Cole um link para ver o preview.</div>
+                )}
+                <div className="background-control">
+                  <label className="background-control-label">
+                    Escurecer fundo: {Number(backgroundDim || 0).toFixed(2)}
+                  </label>
+                  <input
+                    className="background-control-range"
+                    type="range"
+                    min="0"
+                    max="0.85"
+                    step="0.05"
+                    value={backgroundDim}
+                    onChange={(event) => setBackgroundDim(event.target.value)}
+                  />
+                </div>
+                <div className="background-control">
+                  <label className="background-control-label">
+                    Blur: {Number(backgroundBlur || 0)}px
+                  </label>
+                  <input
+                    className="background-control-range"
+                    type="range"
+                    min="0"
+                    max="12"
+                    step="1"
+                    value={backgroundBlur}
+                    onChange={(event) => setBackgroundBlur(event.target.value)}
+                  />
+                </div>
+                <div className="master-image-trigger-actions">
+                  <button className="master-trigger-btn" onClick={handleSaveBackground}>
+                    SALVAR
+                  </button>
+                  <button
+                    className="master-trigger-btn secondary"
+                    onClick={() => onSaveCampaignBackground?.({ url: '', dim: 0, blur: 0 })}
+                  >
+                    LIMPAR FUNDO
+                  </button>
+                  <button className="master-trigger-btn secondary" onClick={handleCloseBackgroundEditor}>
+                    FECHAR
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
       <div className="mission-side-column">
         <div className="active-mission-block out-of-menu">
           <div className="active-mission-label">Missao Atual</div>
@@ -443,6 +546,34 @@ export default function MainMenu({
                 </div>
               </div>
             ) : null}
+            <div className="master-image-library">
+              <div className="master-image-library-title">Solicitacoes de acesso</div>
+              {pendingRequests.length > 0 ? (
+                <div className="master-image-library-list">
+                  {pendingRequests.map((request) => (
+                    <div className="master-image-library-item" key={request.id ?? request.username}>
+                      <div className="master-image-library-name">{request.username}</div>
+                      <div className="master-image-library-actions">
+                        <button
+                          className="master-trigger-btn"
+                          onClick={() => onAcceptJoinRequest?.(request)}
+                        >
+                          ACEITAR
+                        </button>
+                        <button
+                          className="master-trigger-btn secondary"
+                          onClick={() => onDenyJoinRequest?.(request)}
+                        >
+                          NEGAR
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="active-mission-empty">Nenhuma solicitacao pendente.</div>
+              )}
+            </div>
           </div>
         ) : null}
 
@@ -485,7 +616,7 @@ export default function MainMenu({
       </div>
 
       <div className="character-side-column">
-        <CharacterSheet playerId={playerId} onOpenProfile={handleOpenCharacterProfile} />
+        <CharacterSheet onOpenProfile={handleOpenCharacterProfile} />
       </div>
 
     </div>

@@ -204,3 +204,29 @@ export async function testCloudConnection() {
     };
   }
 }
+
+export async function listCampaignIds() {
+  if (!cloudEnabled()) return [];
+
+  try {
+    const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/app_state`);
+    url.searchParams.set('select', 'campaign_id');
+    url.searchParams.set('scope', 'eq.campaign_auth_v1');
+    url.searchParams.set('limit', '1000');
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+    });
+
+    if (!response.ok) return [];
+    const json = await response.json();
+    const ids = Array.isArray(json) ? json.map((row) => row.campaign_id).filter(Boolean) : [];
+    return Array.from(new Set(ids));
+  } catch {
+    return [];
+  }
+}

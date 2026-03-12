@@ -6,6 +6,7 @@
   margin: 0 auto;
   gap: 10px;
   align-items: start;
+  position: relative;
 }
 
 .mission-side-column {
@@ -429,6 +430,31 @@
   gap: 8px;
 }
 
+.background-preview {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border: 1px solid rgba(120, 226, 255, 0.45);
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.background-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.background-control-label {
+  color: rgba(120, 226, 255, 0.85);
+  font-size: 0.78rem;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.background-control-range {
+  width: 100%;
+}
+
 .master-image-title {
   color: var(--cp-red);
   font-family: 'Orbitron', sans-serif;
@@ -478,6 +504,21 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.master-bg-btn {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 260;
+  border: 1px solid rgba(255, 58, 58, 0.6);
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--cp-cyan);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
 }
 
 .active-mission-block {
@@ -1023,6 +1064,11 @@
   min-height: 36px;
 }
 
+.entry-textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
 .entries-list {
   display: flex;
   flex-direction: column;
@@ -1075,6 +1121,70 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.character-profile-hint {
+  border: 1px solid rgba(120, 226, 255, 0.25);
+  background: rgba(0, 8, 12, 0.4);
+  color: rgba(120, 226, 255, 0.85);
+  padding: 10px;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+}
+
+.character-sheet-shell {
+  width: min(860px, 96vw);
+  max-width: min(860px, 96vw);
+}
+
+.character-section {
+  border: 1px solid rgba(255, 58, 58, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.character-section > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.character-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.character-section-title {
+  color: var(--cp-red);
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+
+.character-section-body {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.character-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.character-inline-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) repeat(3, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.character-inline-title {
+  color: var(--cp-cyan);
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 .inventory-shell {
@@ -1241,11 +1351,16 @@
   opacity: 0;
 }
 
+.re4-item-image-wrap {
+  position: absolute;
+  pointer-events: none;
+}
+
 .re4-item-image {
   position: absolute;
-  inset: 6px;
-  width: calc(100% - 12px);
-  height: calc(100% - 12px);
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   opacity: 0.9;
 }
@@ -1457,7 +1572,7 @@
   accent-color: var(--cp-red);
 }
 
-.step-done {
+step-done {
   text-decoration: line-through;
   opacity: 0.65;
 }
@@ -1489,6 +1604,8 @@
   .npc-card,
   .entry-form,
   .entry-form.compact,
+  .character-stats-grid,
+  .character-inline-row,
   .inventory-toolbar-row,
   .re4-layout,
   .shop-layout {

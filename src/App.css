@@ -58,6 +58,7 @@ body::before {
 }
 
 .app {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -65,6 +66,34 @@ body::before {
   min-height: calc(var(--app-vh) * 100);
   width: 100%;
   padding: 18px;
+}
+
+.app-layer {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: inherit;
+}
+
+.campaign-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  image-rendering: auto;
+}
+
+.campaign-bg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .loading-screen {

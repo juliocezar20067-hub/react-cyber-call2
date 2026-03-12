@@ -9,6 +9,7 @@ import DocumentsPanel from './components/menu/DocumentsPanel';
 import InventoryPanel from './components/menu/InventoryPanel';
 import ShopPanel from './components/menu/ShopPanel';
 import CharacterProfilePanel from './components/menu/CharacterProfilePanel';
+
 import useCallFlow from './hooks/useCallFlow';
 import { initAudioUnlock, onSoundEnded, playSound, preloadAllSounds, stopNarration, stopSound } from './sound/soundSystem';
 import {
@@ -23,10 +24,12 @@ import {
   MISSION_SUMMARY,
   MISSION_TITLE,
 } from './constants/ui';
-import { getStoredState, isCloudConfigured, setStoredState, storedStateExists, subscribeStoredState, testCloudConnection } from './lib/stateStorage';
+import { getStoredState, isCloudConfigured, listCampaignIds, setStoredState, storedStateExists, subscribeStoredState, testCloudConnection } from './lib/stateStorage';
 import './App.css';
 
 const CAMPAIGN_AUTH_SCOPE = 'campaign_auth_v1';
+const CAMPAIGN_JOIN_SCOPE = 'campaign_join_requests_v1';
+const CAMPAIGN_BG_SCOPE = 'campaign_background_v1';
 const CREATE_CAMPAIGN_BOOT_LINES = [
   { text: '> ESTABELECENDO CONEXAO...', type: 'line' },
   { text: '> SINCRONIZANDO PROTOCOLOS DE SEGURANCA...', type: 'line' },
@@ -91,6 +94,19 @@ function createCallEventFromContact(contact) {
   };
 }
 
+function parseBackgroundSettings(input) {
+  if (!input) return { url: '', dim: 0, blur: 0 };
+  if (typeof input === 'string') {
+    return { url: input.trim(), dim: 0, blur: 0 };
+  }
+  const url = typeof input.url === 'string' ? input.url.trim() : '';
+  const rawDim = Number(input.dim);
+  const rawBlur = Number(input.blur);
+  const dim = Number.isFinite(rawDim) ? Math.min(Math.max(rawDim, 0), 0.85) : 0;
+  const blur = Number.isFinite(rawBlur) ? Math.min(Math.max(rawBlur, 0), 12) : 0;
+  return { url, dim, blur };
+}
+
 async function loadCampaignAuth(campaignId) {
   return getStoredState({
     campaignId,
@@ -136,6 +152,7 @@ function App() {
   const [cloudTestResult, setCloudTestResult] = useState('');
   const [isTestingCloud, setIsTestingCloud] = useState(false);
   const [showCreateCampaign, setShowCreateCampaign] = useState(false);
+  const [showCreatePlayer, setShowCreatePlayer] = useState(false);
   const [createCampaignId, setCreateCampaignId] = useState('nightcity-main');
   const [createMasterUser, setCreateMasterUser] = useState('mestre');
   const [createMasterPassword, setCreateMasterPassword] = useState('');
@@ -143,6 +160,12 @@ function App() {
     { name: '404', password: '' },
     { name: 'Soren', password: '' },
   ]);
+  const [playerCampaignId, setPlayerCampaignId] = useState('');
+  const [playerUsername, setPlayerUsername] = useState('');
+  const [playerPassword, setPlayerPassword] = useState('');
+  const [playerError, setPlayerError] = useState('');
+  const [playerSuccess, setPlayerSuccess] = useState('');
+  const [playerCampaignOptions, setPlayerCampaignOptions] = useState([]);
   const [bootRenderedLines, setBootRenderedLines] = useState([]);
   const [bootTypingLine, setBootTypingLine] = useState(null);
   const [bootCompleted, setBootCompleted] = useState(false);
@@ -150,6 +173,8 @@ function App() {
   const [trackingByPlayer, setTrackingByPlayer] = useState({});
   const [showMissionDecision, setShowMissionDecision] = useState(false);
   const [showMissionPopup, setShowMissionPopup] = useState(false);
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [campaignBackground, setCampaignBackground] = useState({ url: '', dim: 0, blur: 0 });
 
   const [audioReady, setAudioReady] = useState(false);
   const [experienceStarted, setExperienceStarted] = useState(false);
@@ -249,6 +274,19 @@ function App() {
       stopSound('terminalWriting');
     };
   }, [showCreateCampaign]);
+
+  useEffect(() => {
+    if (!showCreatePlayer) return;
+
+    setPlayerError('');
+    setPlayerSuccess('');
+    listCampaignIds().then((ids) => {
+      setPlayerCampaignOptions(ids);
+      if (!playerCampaignId) {
+        setPlayerCampaignId(campaignIdInput.trim());
+      }
+    });
+  }, [campaignIdInput, playerCampaignId, showCreatePlayer]);
   const isSessionReady = Boolean(sessionConfig);
   const currentPlayerId = useMemo(() => {
     if (!sessionConfig) return null;
@@ -365,6 +403,44 @@ function App() {
       }
     };
   }, [campaignPlayers, sessionConfig]);
+
+  useEffect(() => {
+    if (!sessionConfig || sessionConfig.role !== 'master') {
+      setJoinRequests([]);
+      return;
+    }
+
+    const unsubscribe = subscribeStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId: '__system__',
+      scope: CAMPAIGN_JOIN_SCOPE,
+      fallback: [],
+      onChange: (data) => {
+        setJoinRequests(Array.isArray(data) ? data : []);
+      },
+    });
+
+    return unsubscribe;
+  }, [sessionConfig]);
+
+  useEffect(() => {
+    if (!sessionConfig?.campaignId) {
+      setCampaignBackground('');
+      return;
+    }
+
+    const unsubscribe = subscribeStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId: '__system__',
+      scope: CAMPAIGN_BG_SCOPE,
+      fallback: '',
+      onChange: (data) => {
+        setCampaignBackground(parseBackgroundSettings(data));
+      },
+    });
+
+    return unsubscribe;
+  }, [sessionConfig]);
 
   useEffect(() => {
     if (!sessionConfig) return;
@@ -729,6 +805,135 @@ function App() {
     playSound('button');
   };
 
+  const resetCreatePlayer = () => {
+    setPlayerUsername('');
+    setPlayerPassword('');
+    setPlayerError('');
+    setPlayerSuccess('');
+  };
+
+  const handleCreatePlayerRequest = async () => {
+    setPlayerError('');
+    setPlayerSuccess('');
+
+    const campaignId = playerCampaignId.trim();
+    const username = playerUsername.trim();
+    const password = playerPassword;
+
+    if (!campaignId || !username || !password) {
+      setPlayerError('Preencha campanha, usuario e senha.');
+      return;
+    }
+
+    playSound('button');
+
+    const auth = await loadCampaignAuth(campaignId);
+    if (!auth?.master?.username) {
+      setPlayerError('Campanha nao encontrada.');
+      return;
+    }
+
+    const existingPlayer = Array.isArray(auth.players)
+      ? auth.players.some((player) => player.id === username)
+      : false;
+    if (auth.master.username === username || existingPlayer) {
+      setPlayerError('Esse usuario ja existe nessa campanha.');
+      return;
+    }
+
+    const currentRequests = await getStoredState({
+      campaignId,
+      playerId: '__system__',
+      scope: CAMPAIGN_JOIN_SCOPE,
+      fallback: [],
+    });
+    const list = Array.isArray(currentRequests) ? currentRequests : [];
+    if (list.some((req) => req.username === username)) {
+      setPlayerError('Ja existe uma solicitacao com esse usuario.');
+      return;
+    }
+
+    const next = [
+      {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        username,
+        password,
+        createdAt: Date.now(),
+      },
+      ...list,
+    ];
+
+    setStoredState({
+      campaignId,
+      playerId: '__system__',
+      scope: CAMPAIGN_JOIN_SCOPE,
+      data: next,
+    });
+
+    setPlayerSuccess('Pedido enviado. Aguarde aprovacao do mestre.');
+    setPlayerUsername('');
+    setPlayerPassword('');
+  };
+
+  const handleAcceptJoinRequest = async (request) => {
+    if (!sessionConfig || sessionConfig.role !== 'master' || !request?.username) return;
+
+    playSound('button');
+    const campaignId = sessionConfig.campaignId;
+    const auth = await loadCampaignAuth(campaignId);
+    if (!auth?.master?.username) return;
+
+    const players = Array.isArray(auth.players) ? auth.players : [];
+    const alreadyExists = players.some((player) => player.id === request.username) || auth.master.username === request.username;
+    const nextPlayers = alreadyExists
+      ? players
+      : [...players, { id: request.username, password: request.password }];
+
+    saveCampaignAuth(campaignId, {
+      ...auth,
+      players: nextPlayers,
+      updatedAt: Date.now(),
+    });
+    setCampaignPlayers(nextPlayers.map((player) => player.id));
+
+    const nextRequests = joinRequests.filter(
+      (entry) => entry.id !== request.id && entry.username !== request.username
+    );
+    setStoredState({
+      campaignId,
+      playerId: '__system__',
+      scope: CAMPAIGN_JOIN_SCOPE,
+      data: nextRequests,
+    });
+  };
+
+  const handleDenyJoinRequest = (request) => {
+    if (!sessionConfig || sessionConfig.role !== 'master' || !request?.username) return;
+    playSound('button');
+    const campaignId = sessionConfig.campaignId;
+    const nextRequests = joinRequests.filter(
+      (entry) => entry.id !== request.id && entry.username !== request.username
+    );
+    setStoredState({
+      campaignId,
+      playerId: '__system__',
+      scope: CAMPAIGN_JOIN_SCOPE,
+      data: nextRequests,
+    });
+  };
+
+  const handleSaveCampaignBackground = (url) => {
+    if (!sessionConfig?.campaignId) return;
+    const cleaned = parseBackgroundSettings(url);
+    playSound('button');
+    setStoredState({
+      campaignId: sessionConfig.campaignId,
+      playerId: '__system__',
+      scope: CAMPAIGN_BG_SCOPE,
+      data: cleaned,
+    });
+  };
+
   const handleTestCloud = async () => {
     setIsTestingCloud(true);
     setCloudTestResult('Testando conexao...');
@@ -814,18 +1019,44 @@ function App() {
   };
 
   const currentTracking = currentPlayerId ? trackingByPlayer[currentPlayerId] ?? createDefaultTracking() : createDefaultTracking();
+  const bgUrl = campaignBackground?.url ?? '';
+  const bgBlur = Number.isFinite(campaignBackground?.blur) ? campaignBackground.blur : 0;
+  const bgDim = Number.isFinite(campaignBackground?.dim) ? campaignBackground.dim : 0;
+  const backgroundLayers = bgUrl ? (
+    <>
+      <div
+        className="campaign-bg"
+        style={{
+          backgroundImage: `url(${bgUrl})`,
+        }}
+      />
+      {bgDim > 0 || bgBlur > 0 ? (
+        <div
+          className="campaign-bg-overlay"
+          style={{
+            backgroundColor: `rgba(0, 0, 0, ${bgDim})`,
+            backdropFilter: bgBlur > 0 ? `blur(${bgBlur}px)` : 'none',
+            WebkitBackdropFilter: bgBlur > 0 ? `blur(${bgBlur}px)` : 'none',
+          }}
+        />
+      ) : null}
+    </>
+  ) : null;
 
   if (!audioReady) {
     const percent = Math.round((audioProgress.loaded / audioProgress.total) * 100);
     return (
       <div className="app loading-screen">
-        <div className="loading-card">
-          <div className="loading-title">CARREGANDO AUDIO</div>
-          <div className="loading-subtitle">
-            {audioProgress.loaded}/{audioProgress.total} arquivos
-          </div>
-          <div className="loading-bar">
-            <div className="loading-bar-fill" style={{ width: `${percent}%` }}></div>
+        {backgroundLayers}
+        <div className="app-layer">
+          <div className="loading-card">
+            <div className="loading-title">CARREGANDO AUDIO</div>
+            <div className="loading-subtitle">
+              {audioProgress.loaded}/{audioProgress.total} arquivos
+            </div>
+            <div className="loading-bar">
+              <div className="loading-bar-fill" style={{ width: `${percent}%` }}></div>
+            </div>
           </div>
         </div>
       </div>
@@ -835,9 +1066,12 @@ function App() {
   if (!experienceStarted) {
     return (
       <div className="app loading-screen">
-        <button className="start-button" onClick={() => setExperienceStarted(true)}>
-          CLIQUE PARA INICIAR
-        </button>
+        {backgroundLayers}
+        <div className="app-layer">
+          <button className="start-button" onClick={() => setExperienceStarted(true)}>
+            CLIQUE PARA INICIAR
+          </button>
+        </div>
       </div>
     );
   }
@@ -845,54 +1079,66 @@ function App() {
   if (!isSessionReady) {
     return (
       <div className="app loading-screen">
-        <div className="session-card">
-          <div className="session-title">ACESSO AO TERMINAL</div>
-          <div className="session-cloud-indicator">
-            Banco: {isCloudConfigured() ? 'SUPABASE CONECTADO' : 'LOCAL (sem Supabase)'}
+        {backgroundLayers}
+        <div className="app-layer">
+          <div className="session-card">
+            <div className="session-title">ACESSO AO TERMINAL</div>
+            <div className="session-cloud-indicator">
+              Banco: {isCloudConfigured() ? 'SUPABASE CONECTADO' : 'LOCAL (sem Supabase)'}
+            </div>
+            <button className="session-test-btn" onClick={handleTestCloud} disabled={isTestingCloud}>
+              {isTestingCloud ? 'TESTANDO...' : 'TESTAR CONEXAO'}
+            </button>
+            {cloudTestResult ? <div className="session-cloud-result">{cloudTestResult}</div> : null}
+            <label className="session-label">
+              Campanha
+              <input
+                className="session-input"
+                value={campaignIdInput}
+                onChange={(event) => setCampaignIdInput(event.target.value)}
+              />
+            </label>
+            <label className="session-label">
+              Usuario
+              <input
+                className="session-input"
+                value={loginUserInput}
+                onChange={(event) => setLoginUserInput(event.target.value)}
+                placeholder="Ex: mestre, 404, Soren"
+              />
+            </label>
+            <label className="session-label">
+              Senha
+              <input
+                className="session-input"
+                type="password"
+                value={loginPasswordInput}
+                onChange={(event) => setLoginPasswordInput(event.target.value)}
+                placeholder="Senha do usuario"
+              />
+            </label>
+            {loginError ? <div className="session-error">{loginError}</div> : null}
+            <button className="session-start-btn" onClick={() => void handleStartSession()}>
+              ENTRAR NO TERMINAL
+            </button>
+            <button className="session-test-btn" onClick={() => setShowCreateCampaign((prev) => !prev)}>
+              {showCreateCampaign ? 'FECHAR CRIAR CAMPANHA' : 'CRIAR CAMPANHA'}
+            </button>
+            <button
+              className="session-test-btn"
+              onClick={() => {
+                playSound('button');
+                setShowCreateCampaign(false);
+                setShowCreatePlayer(true);
+              }}
+            >
+              CRIAR JOGADOR
+            </button>
           </div>
-          <button className="session-test-btn" onClick={handleTestCloud} disabled={isTestingCloud}>
-            {isTestingCloud ? 'TESTANDO...' : 'TESTAR CONEXAO'}
-          </button>
-          {cloudTestResult ? <div className="session-cloud-result">{cloudTestResult}</div> : null}
-          <label className="session-label">
-            Campanha
-            <input
-              className="session-input"
-              value={campaignIdInput}
-              onChange={(event) => setCampaignIdInput(event.target.value)}
-            />
-          </label>
-          <label className="session-label">
-            Usuario
-            <input
-              className="session-input"
-              value={loginUserInput}
-              onChange={(event) => setLoginUserInput(event.target.value)}
-              placeholder="Ex: mestre, 404, Soren"
-            />
-          </label>
-          <label className="session-label">
-            Senha
-            <input
-              className="session-input"
-              type="password"
-              value={loginPasswordInput}
-              onChange={(event) => setLoginPasswordInput(event.target.value)}
-              placeholder="Senha do usuario"
-            />
-          </label>
-          {loginError ? <div className="session-error">{loginError}</div> : null}
-          <button className="session-start-btn" onClick={() => void handleStartSession()}>
-            ENTRAR NO TERMINAL
-          </button>
-          <button className="session-test-btn" onClick={() => setShowCreateCampaign((prev) => !prev)}>
-            {showCreateCampaign ? 'FECHAR CRIAR CAMPANHA' : 'CRIAR CAMPANHA'}
-          </button>
-        </div>
-        {showCreateCampaign ? (
-          <div className="campaign-create-overlay" onClick={() => setShowCreateCampaign(false)}>
-            <div className="campaign-create-modal" onClick={(event) => event.stopPropagation()}>
-              <div className="campaign-create-box">
+          {showCreateCampaign ? (
+            <div className="campaign-create-overlay" onClick={() => setShowCreateCampaign(false)}>
+              <div className="campaign-create-modal" onClick={(event) => event.stopPropagation()}>
+                <div className="campaign-create-box">
                 <div className="campaign-create-terminal">
                   <div className="campaign-create-title">BOOT DE TERMINAL</div>
                   {bootRenderedLines.map((line, index) => (
@@ -981,16 +1227,86 @@ function App() {
                   Dica: use players no formato <code>404:senha,Soren:senha</code>.
                 </div>
                 {loginError ? <div className="session-error">{loginError}</div> : null}
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+          {showCreatePlayer ? (
+            <div
+              className="campaign-create-overlay"
+              onClick={() => {
+                playSound('button');
+                setShowCreatePlayer(false);
+                resetCreatePlayer();
+              }}
+            >
+              <div className="campaign-create-modal" onClick={(event) => event.stopPropagation()}>
+                <div className="campaign-create-box">
+                <div className="campaign-create-title">CRIAR JOGADOR</div>
+                <div className="campaign-create-hint">
+                  Escolha uma campanha existente e envie seu pedido para o mestre aprovar.
+                </div>
+                {playerCampaignOptions.length > 0 ? (
+                  <select
+                    className="session-input"
+                    value={playerCampaignId}
+                    onChange={(event) => setPlayerCampaignId(event.target.value)}
+                  >
+                    <option value="">Selecione uma campanha</option>
+                    {playerCampaignOptions.map((id) => (
+                      <option key={id} value={id}>{id}</option>
+                    ))}
+                  </select>
+                ) : null}
+                <input
+                  className="session-input"
+                  placeholder="ID da campanha"
+                  value={playerCampaignId}
+                  onChange={(event) => setPlayerCampaignId(event.target.value)}
+                />
+                <input
+                  className="session-input"
+                  placeholder="Usuario"
+                  value={playerUsername}
+                  onChange={(event) => setPlayerUsername(event.target.value)}
+                />
+                <input
+                  className="session-input"
+                  type="password"
+                  placeholder="Senha"
+                  value={playerPassword}
+                  onChange={(event) => setPlayerPassword(event.target.value)}
+                />
+                {playerError ? <div className="session-error">{playerError}</div> : null}
+                {playerSuccess ? <div className="session-cloud-result">{playerSuccess}</div> : null}
+                <div className="campaign-actions">
+                  <button className="session-start-btn" onClick={handleCreatePlayerRequest}>
+                    ENVIAR PEDIDO
+                  </button>
+                  <button
+                    className="session-test-btn"
+                    onClick={() => {
+                      playSound('button');
+                      setShowCreatePlayer(false);
+                      resetCreatePlayer();
+                    }}
+                  >
+                    FECHAR
+                  </button>
+                </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="app">
+      {backgroundLayers}
+      <div className="app-layer">
       {currentView === 'incoming' ? (
         <IncomingCall
           onAnswer={answerCall}
@@ -1033,6 +1349,11 @@ function App() {
           masterContacts={contactsByPlayer[masterSelectedPlayer] ?? []}
           onTriggerCallForPlayer={handleMasterTriggerCall}
           onTriggerImageForPlayer={handleMasterTriggerImage}
+          joinRequests={joinRequests}
+          onAcceptJoinRequest={handleAcceptJoinRequest}
+          onDenyJoinRequest={handleDenyJoinRequest}
+          campaignBackground={campaignBackground}
+          onSaveCampaignBackground={handleSaveCampaignBackground}
         />
       ) : null}
       {currentView === 'npcs' ? (
@@ -1086,8 +1407,13 @@ function App() {
         />
       ) : null}
       {currentView === 'characterProfile' ? (
-        <CharacterProfilePanel playerId={currentPlayerId} onBack={openMenu} />
+        <CharacterProfilePanel
+          campaignId={sessionConfig.campaignId}
+          playerId={currentPlayerId}
+          onBack={openMenu}
+        />
       ) : null}
+
       {imagePopup ? (
         <div className="image-popup-overlay" onClick={handleCloseImagePopup}>
           <div className="image-popup-card" onClick={(event) => event.stopPropagation()}>
@@ -1171,6 +1497,7 @@ function App() {
           </div>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }

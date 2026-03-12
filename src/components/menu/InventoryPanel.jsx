@@ -15,6 +15,8 @@ const MIN_GRID = 3;
 const MAX_GRID = 16;
 const LONG_PRESS_MS = 1000;
 const DRAG_THRESHOLD = 6;
+const IMAGE_ALPHA_THRESHOLD = 8;
+const IMAGE_TRIM_PADDING = 2;
 function itemDims(item, rotated = item.rotated) {
   return rotated ? { w: item.h, h: item.w } : { w: item.w, h: item.h };
 }
@@ -40,6 +42,106 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+async function trimTransparentEdges(src) {
+  if (!src) return null;
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  const loadPromise = new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('failed'));
+  });
+  img.src = src;
+  await loadPromise;
+
+  const width = img.naturalWidth || img.width;
+  const height = img.naturalHeight || img.height;
+  if (!width || !height) return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return { src, w: width, h: height };
+
+  ctx.drawImage(img, 0, 0);
+  let imageData;
+  try {
+    imageData = ctx.getImageData(0, 0, width, height);
+  } catch {
+    return { src, w: width, h: height };
+  }
+  const data = imageData.data;
+
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const idx = (y * width + x) * 4;
+      const alpha = data[idx + 3];
+      if (alpha > IMAGE_ALPHA_THRESHOLD) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX < minX || maxY < minY) {
+    return { src, w: width, h: height };
+  }
+
+  minX = Math.max(0, minX - IMAGE_TRIM_PADDING);
+  minY = Math.max(0, minY - IMAGE_TRIM_PADDING);
+  maxX = Math.min(width - 1, maxX + IMAGE_TRIM_PADDING);
+  maxY = Math.min(height - 1, maxY + IMAGE_TRIM_PADDING);
+
+  const cropW = maxX - minX + 1;
+  const cropH = maxY - minY + 1;
+  if (cropW <= 0 || cropH <= 0) return { src, w: width, h: height };
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = cropW;
+  outCanvas.height = cropH;
+  const outCtx = outCanvas.getContext('2d');
+  if (!outCtx) return { src, w: width, h: height };
+  outCtx.drawImage(canvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+
+  return { src: outCanvas.toDataURL('image/png'), w: cropW, h: cropH };
+}
+
+function resolveImageInfo(entry) {
+  if (!entry) return null;
+  if (typeof entry === 'string') {
+    return { src: entry, w: null, h: null };
+  }
+  return entry;
+}
+
+function buildImageWrapStyle(innerW, innerH, rotated) {
+  if (!rotated) {
+    return {
+      position: 'absolute',
+      inset: '3px',
+      width: `${innerW}px`,
+      height: `${innerH}px`,
+    };
+  }
+
+  return {
+    position: 'absolute',
+    width: `${innerH}px`,
+    height: `${innerW}px`,
+    left: '50%',
+    top: '50%',
+    transform: 'translate(-50%, -50%) rotate(90deg)',
+  };
+}
+
 export default function InventoryPanel({ onBack, campaignId, playerId }) {
   const inventoryRef = useRef(null);
   const poolRef = useRef(null);
@@ -56,6 +158,7 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
   const [status, setStatus] = useState('');
   const [catalogItems, setCatalogItems] = useState(SHOP_ITEMS);
   const [detailItem, setDetailItem] = useState(null);
+  const [trimmedImages, setTrimmedImages] = useState({});
 
   const [newName, setNewName] = useState('');
   const [newW, setNewW] = useState('3');
@@ -166,6 +269,34 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
 
     return unsubscribe;
   }, [campaignId, playerId, scope]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sources = Array.from(
+      new Set(
+        items
+          .map((item) => item.imageUrl)
+          .filter((url) => typeof url === 'string' && url.trim())
+      )
+    );
+
+    sources.forEach((url) => {
+      if (trimmedImages[url] !== undefined) return;
+      trimTransparentEdges(url)
+        .then((trimmed) => {
+          if (cancelled) return;
+          setTrimmedImages((prev) => ({ ...prev, [url]: trimmed || null }));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setTrimmedImages((prev) => ({ ...prev, [url]: null }));
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items, trimmedImages]);
 
   useEffect(() => {
     if (!campaignId || !playerId || !hydrated) return;
@@ -612,6 +743,11 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
   const renderItem = (item) => {
     if (dragPreview?.itemId === item.id) return null;
     const dims = itemDims(item);
+    const imageInfo = item.imageUrl ? resolveImageInfo(trimmedImages[item.imageUrl]) : null;
+    const displayImage = imageInfo?.src || item.imageUrl || '';
+    const innerW = dims.w * CELL_SIZE - 6;
+    const innerH = dims.h * CELL_SIZE - 6;
+    const imageWrapStyle = buildImageWrapStyle(innerW, innerH, item.rotated);
     const style = {
       width: `${dims.w * CELL_SIZE}px`,
       height: `${dims.h * CELL_SIZE}px`,
@@ -620,7 +756,6 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
       background: item.imageUrl ? 'transparent' : item.color,
       zIndex: selectedItemId === item.id ? 3 : 1,
     };
-    const rotation = item.rotated ? 'rotate(90deg)' : 'none';
     return (
       <div
         key={item.id}
@@ -629,13 +764,14 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
         onClick={() => handleSelectItem(item.id)}
         style={style}
       >
-        {item.imageUrl ? (
-          <img
-            className="re4-item-image"
-            src={item.imageUrl}
-            alt={item.name}
-            style={{ transform: rotation }}
-          />
+        {displayImage ? (
+          <div className="re4-item-image-wrap" style={imageWrapStyle}>
+            <img
+              className="re4-item-image"
+              src={displayImage}
+              alt={item.name}
+            />
+          </div>
         ) : null}
         <span className="re4-item-label">{item.name}</span>
       </div>
@@ -644,6 +780,11 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
 
   const dragItem = dragPreview ? items.find((item) => item.id === dragPreview.itemId) : null;
   const dragDims = dragItem ? itemDims(dragItem, dragPreview.rotation) : null;
+  const dragImageInfo = dragItem?.imageUrl ? resolveImageInfo(trimmedImages[dragItem.imageUrl]) : null;
+  const dragImage = dragImageInfo?.src || dragItem?.imageUrl || '';
+  const dragInnerW = dragDims ? dragDims.w * CELL_SIZE - 6 : 0;
+  const dragInnerH = dragDims ? dragDims.h * CELL_SIZE - 6 : 0;
+  const dragImageWrapStyle = buildImageWrapStyle(dragInnerW, dragInnerH, Boolean(dragPreview?.rotation));
 
   return (
     <div className="menu-shell inventory-shell">
@@ -771,13 +912,14 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
             background: dragItem.imageUrl ? 'transparent' : dragItem.color,
           }}
         >
-          {dragItem.imageUrl ? (
-            <img
-              className="re4-item-image"
-              src={dragItem.imageUrl}
-              alt={dragItem.name}
-              style={{ transform: dragPreview.rotation ? 'rotate(90deg)' : 'none' }}
-            />
+          {dragImage ? (
+            <div className="re4-item-image-wrap" style={dragImageWrapStyle}>
+              <img
+                className="re4-item-image"
+                src={dragImage}
+                alt={dragItem.name}
+              />
+            </div>
           ) : null}
           <span className="re4-item-label">{dragItem.name}</span>
         </div>
