@@ -10,6 +10,7 @@ export default function MainMenu({
   onOpenMissions,
   onOpenInventory,
   onOpenShop,
+  onOpenCombat,
   onOpenDocuments,
   onOpenNpcs,
   onOpenCharacterProfile,
@@ -147,6 +148,11 @@ export default function MainMenu({
   const handleOpenShop = () => {
     playSound('button');
     onOpenShop();
+  };
+
+  const handleOpenCombat = () => {
+    playSound('button');
+    onOpenCombat();
   };
 
   const handleOpenNpcs = () => {
@@ -597,6 +603,11 @@ export default function MainMenu({
           <button className="menu-card" onClick={handleOpenShop}>
             <span className="menu-card-title">Loja</span>
             <span className="menu-card-subtitle">Catalogo e precos oficiais</span>
+          </button>
+
+          <button className="menu-card" onClick={handleOpenCombat}>
+            <span className="menu-card-title">Combate</span>
+            <span className="menu-card-subtitle">Arena tática em tempo real</span>
           </button>
 
           <button className="menu-card" onClick={handleOpenDocuments}>

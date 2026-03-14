@@ -8,6 +8,7 @@ import MissionsPanel from './components/menu/MissionsPanel';
 import DocumentsPanel from './components/menu/DocumentsPanel';
 import InventoryPanel from './components/menu/InventoryPanel';
 import ShopPanel from './components/menu/ShopPanel';
+import CombatGridPanel from './components/menu/CombatGridPanel';
 import CharacterProfilePanel from './components/menu/CharacterProfilePanel';
 
 import useCallFlow from './hooks/useCallFlow';
@@ -137,6 +138,7 @@ function App() {
     openDocuments,
     openInventory,
     openShop,
+    openCombat,
     openCharacterProfile,
     openMenu,
     openCall,
@@ -1332,6 +1334,7 @@ function App() {
           onOpenDocuments={openDocuments}
           onOpenInventory={openInventory}
           onOpenShop={openShop}
+          onOpenCombat={openCombat}
           onOpenCharacterProfile={openCharacterProfile}
           activeMission={currentTracking.active}
           completedMissions={currentTracking.completed}
@@ -1404,6 +1407,13 @@ function App() {
           playerId={currentPlayerId}
           campaignId={sessionConfig.campaignId}
           role={sessionConfig.role}
+        />
+      ) : null}
+      {currentView === 'combat' ? (
+        <CombatGridPanel
+          onBack={openMenu}
+          campaignId={sessionConfig.campaignId}
+          playerId={currentPlayerId}
         />
       ) : null}
       {currentView === 'characterProfile' ? (
