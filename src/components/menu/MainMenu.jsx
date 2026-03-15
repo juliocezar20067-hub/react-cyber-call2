@@ -11,6 +11,7 @@ export default function MainMenu({
   onOpenInventory,
   onOpenShop,
   onOpenCombat,
+  onOpenCyberware,
   onOpenDocuments,
   onOpenNpcs,
   onOpenCharacterProfile,
@@ -153,6 +154,11 @@ export default function MainMenu({
   const handleOpenCombat = () => {
     playSound('button');
     onOpenCombat();
+  };
+
+  const handleOpenCyberware = () => {
+    playSound('button');
+    onOpenCyberware();
   };
 
   const handleOpenNpcs = () => {
@@ -608,6 +614,11 @@ export default function MainMenu({
           <button className="menu-card" onClick={handleOpenCombat}>
             <span className="menu-card-title">Combate</span>
             <span className="menu-card-subtitle">Arena tática em tempo real</span>
+          </button>
+
+          <button className="menu-card" onClick={handleOpenCyberware}>
+            <span className="menu-card-title">Cyberware</span>
+            <span className="menu-card-subtitle">Implantes e sistemas equipados</span>
           </button>
 
           <button className="menu-card" onClick={handleOpenDocuments}>

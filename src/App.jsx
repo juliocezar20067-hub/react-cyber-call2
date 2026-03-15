@@ -10,6 +10,7 @@ import InventoryPanel from './components/menu/InventoryPanel';
 import ShopPanel from './components/menu/ShopPanel';
 import CombatGridPanel from './components/menu/CombatGridPanel';
 import CharacterProfilePanel from './components/menu/CharacterProfilePanel';
+import CyberwarePanel from './components/menu/CyberwarePanel';
 
 import useCallFlow from './hooks/useCallFlow';
 import { initAudioUnlock, onSoundEnded, playSound, preloadAllSounds, stopNarration, stopSound } from './sound/soundSystem';
@@ -139,6 +140,7 @@ function App() {
     openInventory,
     openShop,
     openCombat,
+    openCyberware,
     openCharacterProfile,
     openMenu,
     openCall,
@@ -1335,6 +1337,7 @@ function App() {
           onOpenInventory={openInventory}
           onOpenShop={openShop}
           onOpenCombat={openCombat}
+          onOpenCyberware={openCyberware}
           onOpenCharacterProfile={openCharacterProfile}
           activeMission={currentTracking.active}
           completedMissions={currentTracking.completed}
@@ -1411,6 +1414,13 @@ function App() {
       ) : null}
       {currentView === 'combat' ? (
         <CombatGridPanel
+          onBack={openMenu}
+          campaignId={sessionConfig.campaignId}
+          playerId={currentPlayerId}
+        />
+      ) : null}
+      {currentView === 'cyberware' ? (
+        <CyberwarePanel
           onBack={openMenu}
           campaignId={sessionConfig.campaignId}
           playerId={currentPlayerId}

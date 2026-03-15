@@ -142,6 +142,94 @@ function buildImageWrapStyle(innerW, innerH, rotated) {
   };
 }
 
+function parsePackSize(text) {
+  if (!text) return 1;
+  const match = String(text).match(/(\d+)/);
+  if (!match) return 1;
+  const value = Number(match[1]);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function resolveAmmoPackSize(item, fallbackNote) {
+  if (!item) return parsePackSize(fallbackNote);
+  return parsePackSize(item.priceNote) || 1;
+}
+
+function findCatalogItem(catalogItems, itemId) {
+  if (!itemId) return null;
+  return catalogItems.find((entry) => entry.id === itemId) ?? null;
+}
+
+function expandAmmoStacks(rawItems, catalogItems) {
+  const expanded = [];
+  rawItems.forEach((item, index) => {
+    const catalog = findCatalogItem(catalogItems, item.itemId);
+    if (catalog?.category !== 'ammo') {
+      expanded.push(item);
+      return;
+    }
+    const packSize = resolveAmmoPackSize(catalog, catalog?.priceNote);
+    const total = Math.max(1, Number(item.stackQty) || 1);
+    if (total <= packSize) {
+      expanded.push({
+        ...item,
+        stackQty: total,
+      });
+      return;
+    }
+    const packs = Math.ceil(total / packSize);
+    for (let i = 0; i < packs; i += 1) {
+      const qty = i === packs - 1 ? total - packSize * (packs - 1) : packSize;
+      const isFirst = i === 0;
+      expanded.push({
+        ...item,
+        id: isFirst ? item.id : `${item.id ?? item.itemId ?? `ammo-${index}`}-${i}-${Date.now()}`,
+        stackQty: qty,
+        location: isFirst ? item.location : 'pool',
+        x: isFirst ? item.x : 10 + ((expanded.length + i) % 4) * 14,
+        y: isFirst ? item.y : 10 + ((expanded.length + i) % 6) * 14,
+      });
+    }
+  });
+  return expanded;
+}
+
+function buildPossessionsFromItems(items, catalogItems, previous = []) {
+  const prevMap = new Map(
+    previous.map((entry) => [entry.itemId || entry.name, entry])
+  );
+  const map = new Map();
+
+  items.forEach((item) => {
+    const key = item.itemId || item.name;
+    const catalog = findCatalogItem(catalogItems, item.itemId);
+    const prev = prevMap.get(key);
+    const categoryId = catalog?.category ?? '';
+    const stackQty = Math.max(1, Number(item.stackQty) || 1);
+    const entry =
+      map.get(key) || {
+        id: prev?.id ?? item.itemId ?? item.id ?? key,
+        itemId: item.itemId ?? '',
+        name: item.name ?? catalog?.name ?? 'Item',
+        quantity: 0,
+        category: prev?.category ?? (categoryId ? CATEGORY_FILTERS.find((cat) => cat.id === categoryId)?.label ?? categoryId : ''),
+        priceEb: prev?.priceEb ?? catalog?.priceEb ?? 0,
+        priceTier: prev?.priceTier ?? catalog?.priceTier ?? '',
+        source: prev?.source ?? catalog?.source ?? '',
+        grid:
+          prev?.grid ??
+          catalog?.grid ??
+          (item.w && item.h ? { w: item.w, h: item.h } : null),
+        imageUrl: prev?.imageUrl ?? item.imageUrl ?? catalog?.imageUrl ?? '',
+        equipped: prev?.equipped ?? false,
+      };
+    entry.quantity += stackQty;
+    map.set(key, entry);
+  });
+
+  return Array.from(map.values());
+}
+
 export default function InventoryPanel({ onBack, campaignId, playerId }) {
   const inventoryRef = useRef(null);
   const poolRef = useRef(null);
@@ -154,6 +242,7 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
   const [gridRows, setGridRows] = useState(6);
   const [items, setItems] = useState([]);
   const [possessions, setPossessions] = useState([]);
+  const [cash, setCash] = useState(0);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [status, setStatus] = useState('');
   const [catalogItems, setCatalogItems] = useState(SHOP_ITEMS);
@@ -223,6 +312,7 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
         const rows = Number(parsed?.gridRows);
         const loadedItems = Array.isArray(parsed?.items) ? parsed.items : [];
         const loadedPossessions = Array.isArray(parsed?.possessions) ? parsed.possessions : [];
+        const loadedCash = Number(parsed?.cash);
 
         if (Number.isFinite(cols) && Number.isFinite(rows)) {
           setGridCols(clamp(Math.floor(cols), MIN_GRID, MAX_GRID));
@@ -231,7 +321,7 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
           setRowsInput(String(clamp(Math.floor(rows), MIN_GRID, MAX_GRID)));
         }
 
-        setItems(
+        const normalizedItems = expandAmmoStacks(
           loadedItems.map((item) => ({
             id: item.id ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
             itemId: item.itemId ?? '',
@@ -239,30 +329,22 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
             w: Math.max(1, Math.floor(item.w ?? 1)),
             h: Math.max(1, Math.floor(item.h ?? 1)),
             rotated: Boolean(item.rotated),
+            stackQty: Number(item.stackQty) || 1,
             color: item.color ?? '#4d80ff',
             imageUrl: item.imageUrl ?? '',
             location: item.location === 'grid' ? 'grid' : 'pool',
             x: Number.isFinite(item.x) ? item.x : 10,
             y: Number.isFinite(item.y) ? item.y : 10,
-          }))
+          })),
+          catalogItems
         );
 
+        setItems(normalizedItems);
+
         setPossessions(
-          loadedPossessions.map((entry) => ({
-            id: entry.id ?? entry.itemId ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            itemId: entry.itemId ?? entry.id ?? '',
-            name: entry.name ?? 'Item',
-            quantity: Number(entry.quantity) || 1,
-            category: entry.category ?? '',
-            priceEb: Number(entry.priceEb) || 0,
-            priceTier: entry.priceTier ?? '',
-            source: entry.source ?? '',
-            grid: entry.grid && Number(entry.grid.w) && Number(entry.grid.h)
-              ? { w: Number(entry.grid.w), h: Number(entry.grid.h) }
-              : null,
-            imageUrl: entry.imageUrl ?? '',
-          }))
+          buildPossessionsFromItems(normalizedItems, catalogItems, loadedPossessions)
         );
+        setCash(Number.isFinite(loadedCash) ? loadedCash : 0);
         setHydrated(true);
       },
     });
@@ -309,9 +391,15 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
         gridRows,
         items,
         possessions,
+        cash,
       },
     });
-  }, [campaignId, gridCols, gridRows, hydrated, items, playerId, possessions, scope]);
+  }, [campaignId, cash, gridCols, gridRows, hydrated, items, playerId, possessions, scope]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    setPossessions((prev) => buildPossessionsFromItems(items, catalogItems, prev));
+  }, [catalogItems, hydrated, items]);
 
   useEffect(() => {
     const handlePressMove = (event) => {
@@ -555,41 +643,65 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
   const handleSellPossession = (entry) => {
     if (!entry) return;
     playSound('button');
-    setPossessions((prev) => {
-      const targetIndex = prev.findIndex((item) => item.id === entry.id);
-      if (targetIndex < 0) return prev;
-      const target = prev[targetIndex];
-      const currentQty = Number(target.quantity) || 1;
-      if (currentQty > 1) {
-        return prev.map((item) =>
-          item.id === entry.id ? { ...item, quantity: currentQty - 1 } : item
-        );
-      }
-      return prev.filter((item) => item.id !== entry.id);
+    let didRemove = false;
+    setItems((prev) => {
+      const matchIndex = prev.findIndex((item) =>
+        (entry.itemId && item.itemId === entry.itemId) || (!entry.itemId && item.name === entry.name)
+      );
+      if (matchIndex < 0) return prev;
+      const next = [...prev];
+      next.splice(matchIndex, 1);
+      didRemove = true;
+      return next;
     });
-    setStatus(`Item vendido: ${entry.name}`);
+
+    if (!didRemove) {
+      setStatus('Item nao encontrado no inventario.');
+      return;
+    }
+
+    const catalogItem = findCatalogItem(catalogItems, entry.itemId);
+    const sellValue = Number(entry.priceEb) || Number(catalogItem?.priceEb) || 0;
+    if (sellValue) {
+      setCash((prev) => prev + sellValue);
+    }
+    setStatus(`Item vendido: ${entry.name} (+E$ ${sellValue})`);
   };
 
   const handleAddPossession = (entry) => {
     if (!entry) return;
     playSound('button');
-
-    setPossessions((prev) =>
-      prev.map((item) =>
-        item.id === entry.id
-          ? { ...item, quantity: (Number(item.quantity) || 1) + 1 }
-          : item
-      )
-    );
-
     const catalogItem = entry.itemId ? catalogItems.find((item) => item.id === entry.itemId) : null;
     const categoryId = catalogItem?.category ?? null;
+    const isAmmo = catalogItem?.category === 'ammo';
+    const packSize = resolveAmmoPackSize(catalogItem, entry.priceNote);
     const gridConfig =
       entry.grid ||
       catalogItem?.grid ||
       (categoryId ? INVENTORY_CATEGORY_DEFAULTS[categoryId] : null);
 
-    if (gridConfig) {
+    if (isAmmo) {
+      setItems((prev) => {
+        const index = prev.length;
+        return [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            itemId: entry.itemId ?? '',
+            name: entry.name ?? 'Item',
+            w: gridConfig?.w ?? 1,
+            h: gridConfig?.h ?? 1,
+            rotated: false,
+            stackQty: packSize,
+            color: catalogItem?.color ?? gridConfig?.color ?? '#4d80ff',
+            imageUrl: entry.imageUrl ?? catalogItem?.imageUrl ?? '',
+            location: 'pool',
+            x: 10 + (index % 4) * 14,
+            y: 10 + (index % 6) * 14,
+          },
+        ];
+      });
+    } else if (gridConfig) {
       setItems((prev) => {
         const index = prev.length;
         const nextItem = {
@@ -599,6 +711,7 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
           w: gridConfig.w,
           h: gridConfig.h,
           rotated: false,
+          stackQty: 1,
           color: catalogItem?.color ?? gridConfig.color ?? '#4d80ff',
           imageUrl: entry.imageUrl ?? catalogItem?.imageUrl ?? '',
           location: 'pool',
@@ -607,9 +720,41 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
         };
         return [...prev, nextItem];
       });
+    } else {
+      setItems((prev) => {
+        const index = prev.length;
+        return [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            itemId: entry.itemId ?? '',
+            name: entry.name ?? 'Item',
+            w: 1,
+            h: 1,
+            rotated: false,
+            stackQty: 1,
+            color: '#4d80ff',
+            imageUrl: entry.imageUrl ?? '',
+            location: 'pool',
+            x: 10 + (index % 4) * 14,
+            y: 10 + (index % 6) * 14,
+          },
+        ];
+      });
     }
 
     setStatus(`Item adicionado: ${entry.name}`);
+  };
+
+  const handleToggleEquipped = (entry) => {
+    if (!entry) return;
+    playSound('button');
+    setPossessions((prev) =>
+      prev.map((item) =>
+        item.id === entry.id ? { ...item, equipped: !item.equipped } : item
+      )
+    );
+    setStatus(`${entry.equipped ? 'Desequipado' : 'Equipado'}: ${entry.name}`);
   };
 
   const handleRotateSelected = () => {
@@ -756,6 +901,7 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
       background: item.imageUrl ? 'transparent' : item.color,
       zIndex: selectedItemId === item.id ? 3 : 1,
     };
+    const displayQty = Number(item.stackQty) > 1 ? Number(item.stackQty) : null;
     return (
       <div
         key={item.id}
@@ -774,6 +920,7 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
           </div>
         ) : null}
         <span className="re4-item-label">{item.name}</span>
+        {displayQty ? <span className="re4-item-qty">{displayQty}</span> : null}
       </div>
     );
   };
@@ -827,6 +974,9 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
           <button className="mission-action-btn edit" onClick={handleRotateSelected}>ROTACIONAR ITEM (R)</button>
           <button className="mission-action-btn delete" onClick={handleDeleteSelected}>EXCLUIR ITEM</button>
           <button className="mission-action-btn delete" onClick={handleClearInventory}>LIMPAR INVENTARIO</button>
+          <div className="inventory-cash">
+            Dinheiro: E$ {cash}
+          </div>
           <div className="inventory-status">
             {status || `Grid ${gridCols}x${gridRows} | Itens: ${items.length}`}
           </div>
@@ -846,11 +996,22 @@ export default function InventoryPanel({ onBack, campaignId, playerId }) {
                   <div className="inventory-possession-meta">
                     Qtd: {entry.quantity} - {entry.category || '---'}
                   </div>
+                  {entry.equipped ? (
+                    <div className="inventory-possession-tags">
+                      <span className="inventory-possession-tag">EQUIPADO</span>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="inventory-possession-actions">
                   <div className="inventory-possession-meta">
                     {entry.grid ? `Grid: ${entry.grid.w}x${entry.grid.h}` : 'Grid: --'}
                   </div>
+                  <button
+                    className={`inventory-possession-equip ${entry.equipped ? 'is-equipped' : ''}`}
+                    onClick={() => handleToggleEquipped(entry)}
+                  >
+                    {entry.equipped ? 'DESEQUIPAR' : 'EQUIPAR'}
+                  </button>
                   <button className="inventory-possession-add" onClick={() => handleAddPossession(entry)}>
                     + ADICIONAR
                   </button>

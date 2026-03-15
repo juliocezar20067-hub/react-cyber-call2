@@ -1,16 +1,70 @@
 import { useEffect, useMemo, useState } from 'react';
 import { playSound } from '../../sound/soundSystem';
-import { setStoredState, subscribeStoredState } from '../../lib/stateStorage';
+import { getStoredState, setStoredState, subscribeStoredState } from '../../lib/stateStorage';
+import {
+  CATEGORY_FILTERS,
+  INVENTORY_CATEGORY_DEFAULTS,
+  NON_INVENTORY_CATEGORIES,
+  SHOP_ITEMS,
+} from '../../constants/shopCatalog';
 import './Menu.css';
 
 const SHEET_SCOPE = 'character_sheet_v2';
 
 const STAT_KEYS = ['INT', 'REF', 'DEX', 'TECH', 'COOL', 'WILL', 'LUCK', 'MOVE', 'BODY', 'EMP'];
 
+const LIFESTYLE_OPTIONS = [
+  { id: 'kibble', label: 'Kibble', cost: 100 },
+  { id: 'generic_prepak', label: 'Generic Prepak', cost: 300 },
+  { id: 'good_prepak', label: 'Good Prepak', cost: 600 },
+  { id: 'fresh_food', label: 'Fresh Food', cost: 1500 },
+];
+
+const REPUTATION_LEVELS = [
+  { level: 1, desc: 'Quem estava la' },
+  { level: 2, desc: 'Amigos proximos' },
+  { level: 3, desc: 'Todos os colegas e conhecidos' },
+  { level: 4, desc: 'Historias por toda a area local' },
+  { level: 5, desc: 'Reconhecem seu nome em outras areas' },
+  { level: 6, desc: 'Reconhecem voce de vista em outras areas' },
+  { level: 7, desc: 'Uma ou duas noticias foram escritas' },
+  { level: 8, desc: 'Suas facanhas saem regularmente nos screamsheets' },
+  { level: 9, desc: 'Sempre aparece nos screamsheets e TV' },
+  { level: 10, desc: 'Conhecido mundialmente' },
+];
+
+const HOUSING_OPTIONS = [
+  { id: 'street', label: 'Morando na Rua', cost: 0, note: 'Sem custo, mas com penalidades.' },
+  { id: 'street_vehicle', label: 'Morando na Rua em um Veiculo', cost: null, note: 'Depende do veiculo.' },
+  { id: 'cube_hotel', label: 'Cube Hotel', cost: 500 },
+  { id: 'container', label: 'Conteiner de Carga', cost: 1000 },
+  { id: 'studio', label: 'Apartamento Studio', cost: 1500 },
+  { id: 'two_bed', label: 'Apartamento de Dois Quartos', cost: 2500 },
+  { id: 'conapt_corp', label: 'Conapt Corporativo', cost: 0, note: 'Gratis para Exec, com vigilancia.' },
+  { id: 'lux_conapt', label: 'Conapt de Luxo', cost: 7500 },
+  { id: 'lux_penthouse', label: 'Cobertura de Luxo', cost: 15000 },
+  { id: 'beaverville_house', label: 'Casa em Beaverville', cost: null, note: 'Compra (nao aluguel).' },
+  { id: 'beaverville_mansion', label: 'Mansao em Beaverville', cost: null, note: 'Compra (nao aluguel).' },
+  { id: 'nomad_family_vehicle', label: 'Veiculo da Familia (Nomade)', cost: 0, note: 'Sem aluguel mensal.' },
+];
+
+const resolveOption = (list, value) =>
+  list.find((option) => option.id === value || option.label === value) || null;
+
+const resolveMonthlyCost = (stored, optionCost) => {
+  const numeric = Number(stored);
+  if (Number.isFinite(numeric) && stored !== '') return numeric;
+  if (typeof optionCost === 'number') return optionCost;
+  return 0;
+};
+
+const formatMonthlyCost = (cost, isPurchase) => (isPurchase ? 'Compra' : `E$ ${cost}/mes`);
+
 const EMPTY_SHEET = {
   criacao: {
     metodo: '',
     papelConfirmado: false,
+    equipamentoInicialAplicado: false,
   },
   identificacao: {
     nome: '',
@@ -2288,6 +2342,115 @@ const ROLE_LIBRARY = [
   },
 ];
 
+const SKILL_CATEGORIES = [
+  { id: 'all', label: 'Todas' },
+  { id: 'awareness', label: 'Consciencia' },
+  { id: 'body', label: 'Corpo' },
+  { id: 'control', label: 'Controle' },
+  { id: 'education', label: 'Educacao' },
+  { id: 'fighting', label: 'Combate' },
+  { id: 'performance', label: 'Performance' },
+  { id: 'ranged', label: 'Distancia' },
+  { id: 'social', label: 'Social' },
+  { id: 'tech', label: 'Tecnica' },
+  { id: 'role', label: 'Role' },
+];
+
+const REQUIRED_SKILLS = [
+  'Atletismo',
+  'Briga',
+  'Concentracao',
+  'Conversacao',
+  'Educacao',
+  'Evasao',
+  'Primeiros Socorros',
+  'Percepcao Humana',
+  'Linguagem (Linguagem de Rua)',
+  'Especialista Local (Sua Casa)',
+  'Percepcao',
+  'Persuasao',
+  'Furtividade',
+];
+
+const SKILL_LIBRARY = [
+  { name: 'Concentracao', stat: 'WILL', cost: 1, category: 'awareness', required: true },
+  { name: 'Esconder/Revelar Objetos', stat: 'INT', cost: 1, category: 'awareness' },
+  { name: 'Leitura Labial', stat: 'INT', cost: 1, category: 'awareness' },
+  { name: 'Percepcao', stat: 'INT', cost: 1, category: 'awareness', required: true },
+  { name: 'Rastrear', stat: 'INT', cost: 1, category: 'awareness' },
+
+  { name: 'Atletismo', stat: 'DEX', cost: 1, category: 'body', required: true },
+  { name: 'Contorcionismo', stat: 'DEX', cost: 1, category: 'body' },
+  { name: 'Danca', stat: 'DEX', cost: 1, category: 'body' },
+  { name: 'Resistencia', stat: 'WILL', cost: 1, category: 'body' },
+  { name: 'Resistir Tortura/Drogas', stat: 'WILL', cost: 1, category: 'body' },
+  { name: 'Furtividade', stat: 'DEX', cost: 1, category: 'body', required: true },
+
+  { name: 'Conduzir Veiculo Terrestre', stat: 'REF', cost: 1, category: 'control' },
+  { name: 'Pilotar Veiculos Aereos', stat: 'REF', cost: 2, category: 'control' },
+  { name: 'Pilotar Veiculos Maritimos', stat: 'REF', cost: 1, category: 'control' },
+  { name: 'Equitacao', stat: 'REF', cost: 1, category: 'control' },
+
+  { name: 'Contabilidade', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Afinidade com Animais', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Burocracia', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Negocios', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Composicao', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Criminologia', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Criptografia', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Deducao', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Educacao', stat: 'INT', cost: 1, category: 'education', required: true },
+  { name: 'Jogos', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Linguagem (Linguagem de Rua)', stat: 'INT', cost: 1, category: 'education', required: true },
+  { name: 'Linguagem', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Pesquisa Bibliotecaria', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Especialista Local (Sua Casa)', stat: 'INT', cost: 1, category: 'education', required: true },
+  { name: 'Especialista Local', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Ciencias', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Taticas', stat: 'INT', cost: 1, category: 'education' },
+  { name: 'Sobrevivencia', stat: 'INT', cost: 1, category: 'education' },
+
+  { name: 'Briga', stat: 'DEX', cost: 1, category: 'fighting', required: true },
+  { name: 'Evasao', stat: 'DEX', cost: 1, category: 'fighting', required: true },
+  { name: 'Artes Marciais', stat: 'DEX', cost: 2, category: 'fighting' },
+  { name: 'Armas Brancas', stat: 'DEX', cost: 1, category: 'fighting' },
+
+  { name: 'Atuacao', stat: 'COOL', cost: 1, category: 'performance' },
+  { name: 'Tocar Instrumentos', stat: 'TECH', cost: 1, category: 'performance' },
+
+  { name: 'Arquearia', stat: 'REF', cost: 1, category: 'ranged' },
+  { name: 'Disparo Automatico', stat: 'REF', cost: 2, category: 'ranged' },
+  { name: 'Armas de uma Mao', stat: 'REF', cost: 1, category: 'ranged' },
+  { name: 'Armas Pesadas', stat: 'REF', cost: 2, category: 'ranged' },
+  { name: 'Armas de Ombro', stat: 'REF', cost: 1, category: 'ranged' },
+
+  { name: 'Suborno', stat: 'COOL', cost: 1, category: 'social' },
+  { name: 'Conversacao', stat: 'EMP', cost: 1, category: 'social', required: true },
+  { name: 'Percepcao Humana', stat: 'EMP', cost: 1, category: 'social', required: true },
+  { name: 'Interrogatorio', stat: 'COOL', cost: 1, category: 'social' },
+  { name: 'Persuasao', stat: 'COOL', cost: 1, category: 'social', required: true },
+  { name: 'Cuidado Pessoal', stat: 'COOL', cost: 1, category: 'social' },
+  { name: 'Malandragem', stat: 'COOL', cost: 1, category: 'social' },
+  { name: 'Negociacao', stat: 'COOL', cost: 1, category: 'social' },
+  { name: 'Guarda-roupa & Estilo', stat: 'COOL', cost: 1, category: 'social' },
+
+  { name: 'Tecnologia Veiculos Aereos', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Tecnologia Basica', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Cybertecnologia', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Demolicoes', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Tecnologia Eletronica/Seguranca', stat: 'TECH', cost: 2, category: 'tech' },
+  { name: 'Primeiros Socorros', stat: 'TECH', cost: 1, category: 'tech', required: true },
+  { name: 'Falsificacao', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Tecnologia Veiculos Terrestres', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Pintura/Desenho/Escultura', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Paramedico', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Fotografia/Filme', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Tecnologia Veiculos Maritimos', stat: 'TECH', cost: 1, category: 'tech' },
+  { name: 'Tecnologia de Armas', stat: 'TECH', cost: 1, category: 'tech' },
+
+  { name: 'Interface', stat: 'INT', cost: 1, category: 'role' },
+];
+
 const LIFEPATH_ORIGENS = [
   { roll: 1, regiao: 'America do Norte', linguas: ['Chines', 'Cree', 'Crioulo', 'Ingles', 'Frances', 'Navajo', 'Espanhol'] },
   { roll: 2, regiao: 'America Central/Sul', linguas: ['Crioulo', 'Ingles', 'Alemao', 'Guarani', 'Maia', 'Portugues', 'Quichua', 'Espanhol'] },
@@ -2583,6 +2746,58 @@ function rollFromList(list) {
   return { roll, value: list[roll - 1] };
 }
 
+function findLabel(list, id) {
+  return list.find((item) => item.id === id)?.label ?? id;
+}
+
+function normalizeText(text) {
+  if (!text) return '';
+  return String(text)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function parsePackSize(text) {
+  if (!text) return 1;
+  const match = String(text).match(/(\d+)/);
+  if (!match) return 1;
+  const value = Number(match[1]);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function guessCategoryFromName(name) {
+  const clean = normalizeText(name);
+  if (!clean) return 'gear';
+  if (clean.includes('municao') || clean.includes('ammo')) return 'ammo';
+  if (clean.includes('armadura') || clean.includes('blindagem') || clean.includes('kevlar') || clean.includes('flak')) return 'armor';
+  if (
+    clean.includes('pistola') ||
+    clean.includes('rifle') ||
+    clean.includes('espingarda') ||
+    clean.includes('smg') ||
+    clean.includes('sniper') ||
+    clean.includes('lancador') ||
+    clean.includes('granada')
+  ) {
+    return 'ranged';
+  }
+  if (
+    clean.includes('arma branca') ||
+    clean.includes('faca') ||
+    clean.includes('fac') ||
+    clean.includes('espada') ||
+    clean.includes('motosserra') ||
+    clean.includes('taco')
+  ) {
+    return 'melee';
+  }
+  if (clean.includes('moda') || clean.includes('roupa') || clean.includes('estilo')) return 'fashion';
+  if (clean.includes('cyber')) return 'cyberware';
+  return 'gear';
+}
+
 function toNumber(value) {
   if (value === '') return '';
   const parsed = Number(value);
@@ -2610,6 +2825,7 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
   });
 
   const [lifepathTab, setLifepathTab] = useState('origens');
+  const [statsRoll, setStatsRoll] = useState(null);
 
   const [newCyberOption, setNewCyberOption] = useState({ nome: '', slot: '' });
   const [newLeftOptic, setNewLeftOptic] = useState('');
@@ -2622,6 +2838,15 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
   const [newGrenade, setNewGrenade] = useState({ tipo: '', quantidade: '' });
   const [newItem, setNewItem] = useState({ nome: '', quantidade: '' });
 
+  const [catalogItems, setCatalogItems] = useState(SHOP_ITEMS);
+  const [shopCategory, setShopCategory] = useState('all');
+  const [shopSearch, setShopSearch] = useState('');
+  const [gearCart, setGearCart] = useState([]);
+  const [gearStatus, setGearStatus] = useState('');
+  const [inventorySnapshot, setInventorySnapshot] = useState(null);
+  const [skillCategory, setSkillCategory] = useState('all');
+  const [skillStatus, setSkillStatus] = useState('');
+
   const sections = useMemo(
     () => [
       { id: 'identificacao', label: 'Identificacao', open: true },
@@ -2630,7 +2855,6 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
       { id: 'derivadas', label: 'Derivadas', open: false },
       { id: 'habilidades', label: 'Habilidades', open: false },
       { id: 'combate', label: 'Combate', open: false },
-      { id: 'cyberware', label: 'Cyberware', open: false },
       { id: 'estiloVida', label: 'Estilo de Vida', open: false },
       { id: 'moradia', label: 'Moradia', open: false },
       { id: 'lifepath', label: 'Lifepath', open: false },
@@ -2651,8 +2875,8 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
       {
         id: 'equip',
         label: 'Equipamento',
-        hint: 'Combate, itens e cyberware',
-        sections: ['combate', 'equipamento', 'cyberware'],
+        hint: 'Combate e itens',
+        sections: ['combate', 'equipamento'],
       },
       {
         id: 'vida',
@@ -2666,6 +2890,7 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
   );
 
   const [activeStep, setActiveStep] = useState(0);
+  const baseItemIds = useMemo(() => new Set(SHOP_ITEMS.map((item) => item.id)), []);
   const sectionMap = useMemo(
     () =>
       sections.reduce((acc, section) => {
@@ -2684,8 +2909,212 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
     () => ROLE_LIBRARY.find((role) => role.papel === sheet.identificacao.papel) || null,
     [sheet.identificacao.papel]
   );
+  const roleKey = normalizeText(sheet.identificacao.papel);
+  const isExecRole = roleKey === normalizeText('Exec');
+  const isNomadRole = roleKey === normalizeText('Nomad');
+  const lifestyleOption = useMemo(
+    () => resolveOption(LIFESTYLE_OPTIONS, sheet.estiloVida.tipo),
+    [sheet.estiloVida.tipo]
+  );
+  const housingOption = useMemo(
+    () => resolveOption(HOUSING_OPTIONS, sheet.moradia.tipo),
+    [sheet.moradia.tipo]
+  );
+  const lifestyleCost = resolveMonthlyCost(sheet.estiloVida.custoMensal, lifestyleOption?.cost);
+  const housingCost = resolveMonthlyCost(sheet.moradia.aluguelMensal, housingOption?.cost);
+  const totalMonthlyCost = lifestyleCost + housingCost;
+  const lifestyleSelectValue = lifestyleOption?.id || '';
+  const housingSelectValue = housingOption?.id || '';
+  const skillDefinitions = useMemo(() => {
+    const map = new Map();
+    SKILL_LIBRARY.forEach((skill) => {
+      map.set(normalizeText(skill.name), skill);
+    });
+    return map;
+  }, []);
+  const requiredSkillSet = useMemo(
+    () => new Set(REQUIRED_SKILLS.map((skill) => normalizeText(skill))),
+    []
+  );
+
+  const resolveSkillAlias = (normalized) => {
+    if (!normalized) return normalized;
+    if (normalized.startsWith(normalizeText('linguagem'))) return normalizeText('Linguagem');
+    if (normalized.startsWith(normalizeText('especialistalocal'))) return normalizeText('Especialista Local');
+    if (normalized.startsWith(normalizeText('tocarinstrumentos'))) return normalizeText('Tocar Instrumentos');
+    if (normalized.startsWith(normalizeText('artesmarciais'))) return normalizeText('Artes Marciais');
+    if (normalized.startsWith(normalizeText('disparoautomatico'))) return normalizeText('Disparo Automatico');
+    if (normalized.startsWith(normalizeText('armaspesadas'))) return normalizeText('Armas Pesadas');
+    if (normalized.startsWith(normalizeText('pilotarveiculosaereos'))) return normalizeText('Pilotar Veiculos Aereos');
+    if (normalized.startsWith(normalizeText('tecnologiaeletronicaseguranca')))
+      return normalizeText('Tecnologia Eletronica/Seguranca');
+    return normalized;
+  };
+
+  const resolveSkillDefinition = (name) => {
+    const normalized = normalizeText(name);
+    const aliasKey = resolveSkillAlias(normalized);
+    const skill = skillDefinitions.get(normalized) || skillDefinitions.get(aliasKey);
+    const cost = skill?.cost ?? (normalized.includes('x2') ? 2 : 1);
+    return {
+      name,
+      stat: skill?.stat ?? '',
+      cost,
+      category: skill?.category ?? 'misc',
+      required: Boolean(skill?.required) || requiredSkillSet.has(normalized),
+    };
+  };
+
+  const calcSkillBase = (stats, statKey, level) => {
+    if (!statKey) return '';
+    const statValue = Number(stats?.[statKey]);
+    if (!Number.isFinite(statValue)) return '';
+    const lvl = Number(level) || 0;
+    return statValue + lvl;
+  };
   const creationMethod = sheet.criacao?.metodo || '';
   const roleConfirmed = Boolean(sheet.criacao?.papelConfirmado);
+  const statsTable = useMemo(
+    () => selectedRole?.geracaoPersonagem?.ratoDeRua?.tabelaEstatisticas || [],
+    [selectedRole]
+  );
+  const ratoSkills = useMemo(
+    () => selectedRole?.geracaoPersonagem?.ratoDeRua?.habilidadesIniciais || [],
+    [selectedRole]
+  );
+  const edgerunnerSkills = useMemo(
+    () => selectedRole?.geracaoPersonagem?.edgerunner?.listaHabilidades || [],
+    [selectedRole]
+  );
+  const fullSkillNames = useMemo(() => {
+    const names = SKILL_LIBRARY.map((skill) => skill.name);
+    return Array.from(new Set(names));
+  }, []);
+  const skillRowsAll = useMemo(() => {
+    if (creationMethod === 'ratos_de_rua') {
+      return ratoSkills.map((skill) => {
+        const name = skill.nome || '';
+        const meta = resolveSkillDefinition(name);
+        return {
+          ...meta,
+          name,
+          level: Math.max(0, Number(skill.nivel) || 0),
+        };
+      });
+    }
+    const list =
+      creationMethod === 'edgerunner'
+        ? edgerunnerSkills
+        : fullSkillNames;
+    return list.map((name) => {
+      const meta = resolveSkillDefinition(name);
+      const current = sheet.habilidades?.[name];
+      const level = Math.max(0, Number(current?.nivel) || 0);
+      return {
+        ...meta,
+        name,
+        level,
+      };
+    });
+  }, [creationMethod, edgerunnerSkills, fullSkillNames, ratoSkills, sheet.habilidades]);
+  const skillRowsVisible = useMemo(() => {
+    if (skillCategory === 'all') return skillRowsAll;
+    return skillRowsAll.filter((row) => row.category === skillCategory);
+  }, [skillCategory, skillRowsAll]);
+  const skillPointsSpent = useMemo(() => {
+    if (creationMethod === 'ratos_de_rua') return 0;
+    return skillRowsAll.reduce((sum, row) => sum + (row.level || 0) * (row.cost || 1), 0);
+  }, [creationMethod, skillRowsAll]);
+  const skillPointsTotal = 86;
+  const skillPointsRemaining = skillPointsTotal - skillPointsSpent;
+  const skillLevelsValid =
+    creationMethod === 'ratos_de_rua'
+      ? true
+      : skillRowsAll.every((row) => row.level >= 0 && row.level <= 6);
+  const skillRequiredValid =
+    creationMethod === 'ratos_de_rua'
+      ? true
+      : skillRowsAll.filter((row) => row.required).every((row) => row.level >= 2);
+  const skillPointsValid =
+    creationMethod === 'ratos_de_rua' ? true : skillPointsSpent === skillPointsTotal;
+  const skillsValid =
+    creationMethod === 'edgerunner' || creationMethod === 'pacote_completo'
+      ? skillLevelsValid && skillRequiredValid && skillPointsValid
+      : true;
+  const statsTotal = useMemo(
+    () => STAT_KEYS.reduce((sum, key) => sum + (Number(sheet.estatisticas[key]) || 0), 0),
+    [sheet.estatisticas]
+  );
+  const statsComplete = useMemo(
+    () =>
+      STAT_KEYS.every((key) => sheet.estatisticas[key] !== '' && Number.isFinite(Number(sheet.estatisticas[key]))),
+    [sheet.estatisticas]
+  );
+  const statsInRange = useMemo(
+    () =>
+      STAT_KEYS.every((key) => {
+        const value = Number(sheet.estatisticas[key]);
+        return Number.isFinite(value) && value >= 2 && value <= 8;
+      }),
+    [sheet.estatisticas]
+  );
+  const statsValid =
+    creationMethod === 'pacote_completo'
+      ? statsComplete && statsInRange && statsTotal === 62
+      : statsComplete && statsInRange;
+  const bodyValue = toNumber(sheet.estatisticas.BODY);
+  const willValue = toNumber(sheet.estatisticas.WILL);
+  const empValue = toNumber(sheet.estatisticas.EMP);
+
+  const gearBudgets = useMemo(() => {
+    if (creationMethod === 'pacote_completo') {
+      return { general: 2550, fashion: 800 };
+    }
+    if (creationMethod === 'ratos_de_rua' || creationMethod === 'edgerunner') {
+      return { general: 500, fashion: 0 };
+    }
+    return { general: 0, fashion: 0 };
+  }, [creationMethod]);
+
+  const gearSpent = useMemo(
+    () =>
+      gearCart.reduce(
+        (acc, entry) => {
+          const price = Number(entry.priceEb ?? entry.item?.priceEb ?? 0) || 0;
+          const total = price * (Number(entry.quantity) || 1);
+          if (entry.budget === 'fashion') {
+            acc.fashion += total;
+          } else {
+            acc.general += total;
+          }
+          return acc;
+        },
+        { general: 0, fashion: 0 }
+      ),
+    [gearCart]
+  );
+
+  const gearRemainingGeneral = gearBudgets.general - gearSpent.general;
+  const gearRemainingFashion = gearBudgets.fashion - gearSpent.fashion;
+
+  const purchasableItems = useMemo(
+    () =>
+      catalogItems.filter(
+        (item) => item && item.category !== 'services' && item.category !== 'housing'
+      ),
+    [catalogItems]
+  );
+
+  const filteredShopItems = useMemo(() => {
+    const query = shopSearch.trim().toLowerCase();
+    return purchasableItems.filter((item) => {
+      if (shopCategory !== 'all' && item.category !== shopCategory) return false;
+      if (!query) return true;
+      const nameMatch = item.name?.toLowerCase().includes(query);
+      const descMatch = item.description?.toLowerCase().includes(query);
+      return nameMatch || descMatch;
+    });
+  }, [purchasableItems, shopCategory, shopSearch]);
 
   const handleRoleSelect = (roleName) => {
     const role = ROLE_LIBRARY.find((entry) => entry.papel === roleName) || null;
@@ -2751,6 +3180,48 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
   }, [campaignId, playerId]);
 
   useEffect(() => {
+    if (!campaignId) {
+      setCatalogItems(SHOP_ITEMS);
+      return;
+    }
+
+    const unsubscribe = subscribeStoredState({
+      campaignId,
+      playerId: '__system__',
+      scope: 'shop_catalog_custom',
+      fallback: [],
+      onChange: (data) => {
+        const customItems = Array.isArray(data) ? data : [];
+        if (customItems.length === 0) {
+          setCatalogItems(SHOP_ITEMS);
+          return;
+        }
+
+        const overrides = new Map(customItems.map((item) => [item.id, item]));
+        const base = SHOP_ITEMS.map((item) => (overrides.has(item.id) ? { ...item, ...overrides.get(item.id) } : item));
+        const extra = customItems.filter((item) => !baseItemIds.has(item.id));
+        setCatalogItems([...extra, ...base]);
+      },
+    });
+
+    return unsubscribe;
+  }, [baseItemIds, campaignId]);
+
+  useEffect(() => {
+    if (!campaignId || !playerId) return;
+    const unsubscribe = subscribeStoredState({
+      campaignId,
+      playerId,
+      scope: 'inventory_grid',
+      fallback: { gridCols: 10, gridRows: 6, items: [], possessions: [] },
+      onChange: (data) => {
+        setInventorySnapshot(data);
+      },
+    });
+    return unsubscribe;
+  }, [campaignId, playerId]);
+
+  useEffect(() => {
     if (!campaignId || !playerId || !hydrated) return;
     setStoredState({
       campaignId,
@@ -2759,6 +3230,101 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
       data: sheet,
     });
   }, [campaignId, hydrated, playerId, sheet]);
+
+  useEffect(() => {
+    setGearCart([]);
+    setGearStatus('');
+    setSkillStatus('');
+    setSkillCategory('all');
+  }, [creationMethod]);
+
+  useEffect(() => {
+    const hasBody = Number.isFinite(bodyValue);
+    const hasWill = Number.isFinite(willValue);
+    const hasEmp = Number.isFinite(empValue);
+    const hp = hasBody && hasWill ? 10 + 5 * Math.ceil((bodyValue + willValue) / 2) : '';
+    const humanidade = hasEmp ? empValue * 10 : '';
+    const seriouslyWounded = hp !== '' ? Math.ceil(hp / 2) : '';
+    const deathSave = hasBody ? bodyValue : '';
+    const nextDerived = {
+      hp,
+      hpMax: hp,
+      seriouslyWounded,
+      deathSave,
+      humanidade,
+      humanidadeMax: humanidade,
+      empAtual: hasEmp ? empValue : '',
+    };
+
+    setSheet((prev) => {
+      const current = prev.derivadas || {};
+      const isSame = Object.keys(nextDerived).every((key) => current[key] === nextDerived[key]);
+      if (isSame) return prev;
+      return {
+        ...prev,
+        derivadas: {
+          ...current,
+          ...nextDerived,
+        },
+      };
+    });
+  }, [bodyValue, empValue, willValue]);
+
+  useEffect(() => {
+    if (!sheet.identificacao.papel) return;
+    const roleKeyLocal = normalizeText(sheet.identificacao.papel);
+    const isExec = roleKeyLocal === normalizeText('Exec');
+    const isNomad = roleKeyLocal === normalizeText('Nomad');
+    const defaultLifestyle = resolveOption(LIFESTYLE_OPTIONS, isExec ? 'good_prepak' : 'kibble');
+    const defaultHousing = resolveOption(
+      HOUSING_OPTIONS,
+      isExec ? 'conapt_corp' : isNomad ? 'nomad_family_vehicle' : 'container'
+    );
+    setSheet((prev) => {
+      let changed = false;
+      const next = cloneValue(prev);
+      if (!next.estiloVida?.tipo && defaultLifestyle) {
+        next.estiloVida.tipo = defaultLifestyle.label;
+        next.estiloVida.custoMensal = defaultLifestyle.cost ?? '';
+        changed = true;
+      }
+      if (!next.moradia?.tipo && defaultHousing) {
+        next.moradia.tipo = defaultHousing.label;
+        next.moradia.aluguelMensal = defaultHousing.cost ?? '';
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [sheet.identificacao.papel]);
+
+  useEffect(() => {
+    if (creationMethod !== 'ratos_de_rua') return;
+    if (!selectedRole?.papel) return;
+    const list = selectedRole?.geracaoPersonagem?.ratoDeRua?.habilidadesIniciais || [];
+    if (!list.length) return;
+    setSheet((prev) => {
+      if (prev.criacao?.habilidadesRatoDeRuaRole === selectedRole.papel) return prev;
+      const next = cloneValue(prev);
+      const skills = {};
+      list.forEach((entry) => {
+        const name = entry?.nome || '';
+        if (!name) return;
+        const meta = resolveSkillDefinition(name);
+        const level = Math.max(0, Number(entry.nivel) || 0);
+        skills[name] = {
+          nivel: level,
+          stat: meta.stat,
+          base: calcSkillBase(next.estatisticas, meta.stat, level),
+        };
+      });
+      next.habilidades = skills;
+      next.criacao = {
+        ...(next.criacao || {}),
+        habilidadesRatoDeRuaRole: selectedRole.papel,
+      };
+      return next;
+    });
+  }, [creationMethod, selectedRole]);
 
   const handleBack = () => {
     playSound('button');
@@ -2776,7 +3342,11 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
       ? Boolean(creationMethod)
       : currentStep.id === 'papel'
         ? Boolean(sheet.identificacao.papel) && roleConfirmed
-        : true;
+        : currentStep.id === 'stats'
+          ? statsValid
+          : currentStep.id === 'skills'
+            ? skillsValid
+          : true;
   const handleNextStep = () => {
     if (!canProceed) return;
     handleStepChange(activeStep + 1);
@@ -2793,6 +3363,28 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
     }));
   };
 
+  const handleLifestyleSelect = (optionId) => {
+    const option = resolveOption(LIFESTYLE_OPTIONS, optionId);
+    if (!option) return;
+    setSheet((prev) => {
+      const next = cloneValue(prev);
+      next.estiloVida.tipo = option.label;
+      next.estiloVida.custoMensal = option.cost ?? '';
+      return next;
+    });
+  };
+
+  const handleHousingSelect = (optionId) => {
+    const option = resolveOption(HOUSING_OPTIONS, optionId);
+    if (!option) return;
+    setSheet((prev) => {
+      const next = cloneValue(prev);
+      next.moradia.tipo = option.label;
+      next.moradia.aluguelMensal = option.cost ?? '';
+      return next;
+    });
+  };
+
   const updateNested = (path, value) => {
     setSheet((prev) => {
       const next = cloneValue(prev);
@@ -2807,6 +3399,195 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
       pointer[path[path.length - 1]] = value;
       return next;
     });
+  };
+
+  const resolveInventoryConfig = (item) => {
+    if (!item) return null;
+    if (NON_INVENTORY_CATEGORIES.includes(item.category)) return null;
+    const base = INVENTORY_CATEGORY_DEFAULTS[item.category] || INVENTORY_CATEGORY_DEFAULTS.gear;
+    const grid = item.grid ?? base;
+    if (!grid) return null;
+    return {
+      w: grid.w,
+      h: grid.h,
+      color: item.color ?? grid.color ?? base?.color ?? '#4d80ff',
+    };
+  };
+
+  const appendSheetItems = (entries) => {
+    if (!entries?.length) return;
+    setSheet((prev) => {
+      const next = cloneValue(prev);
+      const existing = new Map((next.equipamento?.itens || []).map((item) => [item.nome, { ...item }]));
+      entries.forEach(({ name, quantity }) => {
+        if (!name) return;
+        const current = existing.get(name) || { nome: name, quantidade: 0 };
+        const nextQty = (Number(current.quantidade) || 0) + (Number(quantity) || 1);
+        existing.set(name, { ...current, quantidade: nextQty });
+      });
+      next.equipamento.itens = Array.from(existing.values());
+      return next;
+    });
+  };
+
+  const applyItemsToInventory = async (entries) => {
+    if (!campaignId || !playerId || !entries?.length) return;
+    const inventoryData = await getStoredState({
+      campaignId,
+      playerId,
+      scope: 'inventory_grid',
+      fallback: { gridCols: 10, gridRows: 6, items: [], possessions: [] },
+    });
+
+    const gridCols = Number(inventoryData?.gridCols) || 10;
+    const gridRows = Number(inventoryData?.gridRows) || 6;
+    const currentItems = Array.isArray(inventoryData?.items) ? inventoryData.items : [];
+    const currentPossessions = Array.isArray(inventoryData?.possessions) ? inventoryData.possessions : [];
+
+    const nextItems = [...currentItems];
+    const nextPossessions = [...currentPossessions];
+
+    entries.forEach((entry) => {
+      const item = entry.item || {};
+      const quantity = Math.max(1, Number(entry.quantity) || 1);
+      const gridConfig = resolveInventoryConfig(item);
+      const isAmmo = item.category === 'ammo';
+      const packSize = isAmmo ? parsePackSize(item.priceNote) : 1;
+      const rounds = isAmmo
+        ? Number.isFinite(Number(entry.rounds))
+          ? Number(entry.rounds)
+          : quantity * packSize
+        : quantity;
+      const totalRounds = isAmmo ? Math.max(1, rounds) : quantity;
+
+      if (gridConfig) {
+        if (isAmmo) {
+          const packCount = Math.ceil(totalRounds / packSize);
+          for (let index = 0; index < packCount; index += 1) {
+            const insertIndex = nextItems.length;
+            const packQty =
+              index === packCount - 1 ? totalRounds - packSize * (packCount - 1) : packSize;
+            nextItems.push({
+              id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              itemId: item.id ?? '',
+              name: item.name ?? 'Item',
+              w: gridConfig.w,
+              h: gridConfig.h,
+              rotated: false,
+              stackQty: packQty,
+              color: gridConfig.color,
+              imageUrl: item.imageUrl ?? '',
+              location: 'pool',
+              x: 10 + (insertIndex % 4) * 14,
+              y: 10 + (insertIndex % 6) * 14,
+            });
+          }
+        } else {
+          for (let index = 0; index < quantity; index += 1) {
+            const insertIndex = nextItems.length;
+            nextItems.push({
+              id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              itemId: item.id ?? '',
+              name: item.name ?? 'Item',
+              w: gridConfig.w,
+              h: gridConfig.h,
+              rotated: false,
+              stackQty: 1,
+              color: gridConfig.color,
+              imageUrl: item.imageUrl ?? '',
+              location: 'pool',
+              x: 10 + (insertIndex % 4) * 14,
+              y: 10 + (insertIndex % 6) * 14,
+            });
+          }
+        }
+      }
+
+      const categoryId = item.category ?? 'gear';
+      const categoryLabel = item.categoryLabel ?? findLabel(CATEGORY_FILTERS, categoryId);
+      const existingIndex = nextPossessions.findIndex((pos) =>
+        (item.id && pos.itemId === item.id) || (!item.id && pos.name === item.name)
+      );
+      if (existingIndex >= 0) {
+        const existing = nextPossessions[existingIndex];
+        nextPossessions[existingIndex] = {
+          ...existing,
+          quantity: (Number(existing.quantity) || 1) + (isAmmo ? totalRounds : quantity),
+        };
+      } else {
+        nextPossessions.unshift({
+          id: item.id ?? `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          itemId: item.id ?? '',
+          name: item.name ?? 'Item',
+          category: categoryLabel,
+          priceEb: item.priceEb ?? 0,
+          priceTier: item.priceTier ?? '',
+          source: item.source ?? '',
+          quantity: isAmmo ? totalRounds : quantity,
+          grid: gridConfig ? { w: gridConfig.w, h: gridConfig.h } : item.grid ?? null,
+          imageUrl: item.imageUrl ?? '',
+          equipped: false,
+        });
+      }
+    });
+
+    setStoredState({
+      campaignId,
+      playerId,
+      scope: 'inventory_grid',
+      data: {
+        gridCols,
+        gridRows,
+        items: nextItems,
+        possessions: nextPossessions,
+      },
+    });
+  };
+
+  const clampStatValue = (value, min = 2, max = 8) => {
+    if (value === '') return '';
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return '';
+    return Math.min(max, Math.max(min, parsed));
+  };
+
+  const setStatValue = (key, rawValue, options = {}) => {
+    const nextValue = options.clamp ? clampStatValue(rawValue) : rawValue;
+    setSheet((prev) => {
+      const next = cloneValue(prev);
+      next.estatisticas[key] = nextValue;
+      if (key === 'LUCK') {
+        next.estatisticas.maxLUCK = nextValue;
+      }
+      return next;
+    });
+  };
+
+  const applyStatRow = (row) => {
+    if (!row) return;
+    setSheet((prev) => {
+      const next = cloneValue(prev);
+      STAT_KEYS.forEach((key) => {
+        next.estatisticas[key] = row[key];
+      });
+      next.estatisticas.maxLUCK = row.LUCK;
+      return next;
+    });
+  };
+
+  const handleStatsRollAll = () => {
+    if (!statsTable.length) return;
+    const roll = rollDie(statsTable.length);
+    setStatsRoll(roll);
+    applyStatRow(statsTable[roll - 1]);
+  };
+
+  const handleStatsRollSingle = (key) => {
+    if (!statsTable.length) return;
+    const roll = rollDie(statsTable.length);
+    const row = statsTable[roll - 1];
+    if (!row) return;
+    setStatValue(key, row[key]);
   };
 
   const updateLifepath = (field, value) => updateSection('lifepath', field, value);
@@ -2909,6 +3690,245 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
       const specific = { ...(next.lifepath.especifico || {}) };
       specific[key] = value;
       next.lifepath.especifico = specific;
+      return next;
+    });
+  };
+
+  const findCatalogMatch = (name) => {
+    if (!name) return null;
+    const normalized = normalizeText(name);
+    if (!normalized) return null;
+    const exact = catalogItems.find((item) => normalizeText(item.name) === normalized);
+    if (exact) return exact;
+    return catalogItems.find((item) => {
+      const target = normalizeText(item.name);
+      return target.includes(normalized) || normalized.includes(target);
+    });
+  };
+
+  const handleApplyInitialEquipment = async (options = {}) => {
+    const roleEquipment = selectedRole?.equipamentoInicial ?? null;
+    if (!roleEquipment) {
+      setGearStatus('Selecione um papel para aplicar o kit inicial.');
+      return;
+    }
+    if (sheet.criacao?.equipamentoInicialAplicado && !options.force) {
+      setGearStatus('Equipamento inicial ja foi aplicado.');
+      return;
+    }
+    playSound('button');
+
+    const entries = [];
+    let extraCash = 0;
+
+    (roleEquipment.armasEArmadura || []).forEach((entry) => {
+      if (!entry?.item) return;
+      if (normalizeText(entry.item).includes('dinheiro')) {
+        extraCash += Number(entry.quantidade) || 0;
+        return;
+      }
+      const match = findCatalogMatch(entry.item);
+      if (match) {
+        const isAmmo = match.category === 'ammo';
+        entries.push({
+          item: match,
+          quantity: entry.quantidade || 1,
+          rounds: isAmmo ? entry.quantidade || 1 : undefined,
+        });
+        return;
+      }
+      const category = guessCategoryFromName(entry.item);
+      const isAmmo = category === 'ammo';
+      entries.push({
+        item: {
+          id: `initial-${normalizeText(entry.item) || Date.now()}`,
+          name: entry.item,
+          category,
+          priceEb: 0,
+          priceTier: '',
+          source: 'inicial',
+        },
+        quantity: entry.quantidade || 1,
+        rounds: isAmmo ? entry.quantidade || 1 : undefined,
+      });
+    });
+
+    (roleEquipment.programasCyberdeck || []).forEach((entry) => {
+      if (!entry?.nome) return;
+      entries.push({
+        item: {
+          id: `initial-${normalizeText(entry.nome) || Date.now()}`,
+          name: entry.nome,
+          category: 'gear',
+          priceEb: 0,
+          priceTier: '',
+          source: 'inicial',
+        },
+        quantity: entry.quantidade || 1,
+      });
+    });
+
+    if (entries.length) {
+      await applyItemsToInventory(entries);
+      appendSheetItems(
+        entries.map((entry) => ({
+          name: entry.item.name,
+          quantity: entry.rounds ?? entry.quantity,
+        }))
+      );
+    }
+
+    setSheet((prev) => ({
+      ...prev,
+      criacao: {
+        ...(prev.criacao || {}),
+        equipamentoInicialAplicado: true,
+      },
+      equipamento: {
+        ...prev.equipamento,
+        dinheiro: extraCash || prev.equipamento.dinheiro || gearBudgets.general || '',
+      },
+    }));
+
+    setGearStatus(options.force ? 'Kit reaplicado ao inventario.' : 'Equipamento inicial enviado ao inventario.');
+  };
+
+  const handleResetInitialEquipment = () => {
+    playSound('button');
+    setSheet((prev) => ({
+      ...prev,
+      criacao: {
+        ...(prev.criacao || {}),
+        equipamentoInicialAplicado: false,
+      },
+    }));
+    setGearStatus('Kit liberado para aplicar novamente.');
+  };
+
+  const handleAddToCart = (item) => {
+    if (!item) return;
+    playSound('button');
+    const budget = item.category === 'fashion' ? 'fashion' : 'general';
+    const price = Number(item.priceEb) || 0;
+    const remaining = budget === 'fashion' ? gearRemainingFashion : gearRemainingGeneral;
+    if (remaining - price < 0) {
+      setGearStatus('Saldo insuficiente para esta compra.');
+      return;
+    }
+    setGearCart((prev) => {
+      const existingIndex = prev.findIndex((entry) => entry.item?.id === item.id);
+      if (existingIndex >= 0) {
+        const next = [...prev];
+        next[existingIndex] = {
+          ...next[existingIndex],
+          quantity: (Number(next[existingIndex].quantity) || 1) + 1,
+        };
+        return next;
+      }
+      return [
+        ...prev,
+        {
+          item,
+          quantity: 1,
+          priceEb: item.priceEb ?? 0,
+          budget,
+        },
+      ];
+    });
+    setGearStatus('');
+  };
+
+  const handleRemoveCartItem = (entry) => {
+    if (!entry) return;
+    playSound('button');
+    setGearCart((prev) => {
+      const index = prev.findIndex((item) => item.item?.id === entry.item?.id);
+      if (index < 0) return prev;
+      const target = prev[index];
+      if ((Number(target.quantity) || 1) > 1) {
+        const next = [...prev];
+        next[index] = { ...target, quantity: (Number(target.quantity) || 1) - 1 };
+        return next;
+      }
+      return prev.filter((item) => item.item?.id !== entry.item?.id);
+    });
+  };
+
+  const handleCheckoutCart = async () => {
+    if (!gearCart.length) return;
+    playSound('button');
+    await applyItemsToInventory(gearCart.map((entry) => ({ item: entry.item, quantity: entry.quantity })));
+    appendSheetItems(
+      gearCart.map((entry) => ({
+        name: entry.item.name,
+        quantity:
+          entry.item?.category === 'ammo'
+            ? (Number(entry.quantity) || 1) * parsePackSize(entry.item?.priceNote)
+            : entry.quantity,
+      }))
+    );
+    setSheet((prev) => ({
+      ...prev,
+      equipamento: {
+        ...prev.equipamento,
+        dinheiro: gearRemainingGeneral,
+      },
+    }));
+    setGearCart([]);
+    setGearStatus('Compras adicionadas ao inventario.');
+  };
+
+  const handleSkillLevelChange = (name, value) => {
+    if (!name) return;
+    const meta = resolveSkillDefinition(name);
+    const currentLevel = Math.max(0, Number(sheet.habilidades?.[name]?.nivel) || 0);
+    const parsed = value === '' ? 0 : Number(value);
+    const nextLevel = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 6) : 0;
+
+    if (creationMethod === 'edgerunner' || creationMethod === 'pacote_completo') {
+      const nextPoints =
+        skillPointsSpent - currentLevel * (meta.cost || 1) + nextLevel * (meta.cost || 1);
+      if (nextPoints > skillPointsTotal) {
+        setSkillStatus('Pontos insuficientes para esse nivel.');
+        return;
+      }
+    }
+
+    setSkillStatus('');
+    setSheet((prev) => {
+      const next = cloneValue(prev);
+      const skills = { ...(next.habilidades || {}) };
+      skills[name] = {
+        ...(skills[name] || {}),
+        nivel: nextLevel,
+        stat: meta.stat,
+        base: calcSkillBase(next.estatisticas, meta.stat, nextLevel),
+      };
+      next.habilidades = skills;
+      return next;
+    });
+  };
+
+  const handleSuggestMinimumSkills = () => {
+    if (creationMethod !== 'edgerunner' && creationMethod !== 'pacote_completo') return;
+    setSkillStatus('');
+    setSheet((prev) => {
+      const next = cloneValue(prev);
+      const skills = { ...(next.habilidades || {}) };
+      skillRowsAll
+        .filter((row) => row.required)
+        .forEach((row) => {
+          const current = skills[row.name] || {};
+          const currentLevel = Math.max(0, Number(current.nivel) || 0);
+          const level = Math.max(2, currentLevel);
+          skills[row.name] = {
+            ...current,
+            nivel: level,
+            stat: row.stat,
+            base: calcSkillBase(next.estatisticas, row.stat, level),
+          };
+        });
+      next.habilidades = skills;
       return next;
     });
   };
@@ -3679,28 +4699,125 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
     }
 
     if (section.id === 'estatisticas') {
+      const remainingPoints = 62 - statsTotal;
+      const isStreetRat = creationMethod === 'ratos_de_rua';
+      const isEdgerunner = creationMethod === 'edgerunner';
+      const isPacote = creationMethod === 'pacote_completo';
+
       return (
         <details key={section.id} className="character-section" open={section.open}>
           <summary className="character-section-title">{section.label}</summary>
           <div className="character-section-body">
-            <div className="character-stats-grid">
-              {STAT_KEYS.map((key) => (
-                <input
-                  key={key}
-                  className="entry-input"
-                  type="number"
-                  placeholder={key}
-                  value={sheet.estatisticas[key]}
-                  onChange={(event) => updateNested(['estatisticas', key], toNumber(event.target.value))}
-                />
-              ))}
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="maxLUCK"
-                value={sheet.estatisticas.maxLUCK}
-                onChange={(event) => updateNested(['estatisticas', 'maxLUCK'], toNumber(event.target.value))}
-              />
+            {statsTable.length ? (
+              <div className="stats-table">
+                <div className="stats-table-title">
+                  Tabela do papel: {selectedRole?.papel || 'Papel'}
+                </div>
+                <div className="stats-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Roll</th>
+                        {STAT_KEYS.map((key) => (
+                          <th key={key}>{key}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {statsTable.map((row) => (
+                        <tr key={row.roll ?? row.INT}>
+                          <td>{row.roll}</td>
+                          {STAT_KEYS.map((key) => (
+                            <td key={`${row.roll}-${key}`}>{row[key]}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="lifepath-muted">Selecione um papel para ver a tabela de atributos.</div>
+            )}
+
+            <div className="stats-panel">
+              {isStreetRat ? (
+                <>
+                  <div className="stats-roll-row">
+                    <button className="mission-add-btn" type="button" onClick={handleStatsRollAll}>
+                      ROLAR 1D10
+                    </button>
+                    <span className="stats-roll-info">
+                      {statsRoll ? `Resultado: ${statsRoll}` : 'Role para preencher os atributos.'}
+                    </span>
+                  </div>
+                  <div className="stats-attr-grid">
+                    {STAT_KEYS.map((key) => (
+                      <div key={key} className="stats-attr-card">
+                        <div className="stats-attr-label">{key}</div>
+                        <input className="entry-input" type="number" value={sheet.estatisticas[key]} disabled />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+
+              {isEdgerunner ? (
+                <div className="stats-attr-grid">
+                  {STAT_KEYS.map((key) => (
+                    <div key={key} className="stats-attr-card">
+                      <div className="stats-attr-label">{key}</div>
+                      <div className="stats-attr-controls">
+                        <input
+                          className="entry-input"
+                          type="number"
+                          min={2}
+                          max={8}
+                          placeholder={key}
+                          value={sheet.estatisticas[key]}
+                          onChange={(event) => setStatValue(key, event.target.value, { clamp: true })}
+                        />
+                        <button
+                          className="mission-add-btn"
+                          type="button"
+                          onClick={() => handleStatsRollSingle(key)}
+                        >
+                          ROLAR
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {isPacote ? (
+                <>
+                  <div className={`stats-total ${statsTotal === 62 ? 'is-valid' : 'is-invalid'}`}>
+                    <span>Total: {statsTotal} / 62</span>
+                    <span>Restantes: {remainingPoints}</span>
+                  </div>
+                  <div className="stats-attr-grid">
+                    {STAT_KEYS.map((key) => (
+                      <div key={key} className="stats-attr-card">
+                        <div className="stats-attr-label">{key}</div>
+                        <input
+                          className="entry-input"
+                          type="number"
+                          min={2}
+                          max={8}
+                          placeholder={key}
+                          value={sheet.estatisticas[key]}
+                          onChange={(event) => setStatValue(key, event.target.value, { clamp: true })}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+
+              {!isStreetRat && !isEdgerunner && !isPacote ? (
+                <div className="lifepath-muted">Selecione um metodo de criacao para continuar.</div>
+              ) : null}
             </div>
           </div>
         </details>
@@ -3718,53 +4835,49 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
                 type="number"
                 placeholder="HP"
                 value={sheet.derivadas.hp}
-                onChange={(event) => updateNested(['derivadas', 'hp'], toNumber(event.target.value))}
+                readOnly
               />
               <input
                 className="entry-input"
                 type="number"
                 placeholder="HP Max"
                 value={sheet.derivadas.hpMax}
-                onChange={(event) => updateNested(['derivadas', 'hpMax'], toNumber(event.target.value))}
+                readOnly
               />
               <input
                 className="entry-input"
                 type="number"
                 placeholder="Ferimento Grave"
                 value={sheet.derivadas.seriouslyWounded}
-                onChange={(event) =>
-                  updateNested(['derivadas', 'seriouslyWounded'], toNumber(event.target.value))
-                }
+                readOnly
               />
               <input
                 className="entry-input"
                 type="number"
                 placeholder="Death Save"
                 value={sheet.derivadas.deathSave}
-                onChange={(event) => updateNested(['derivadas', 'deathSave'], toNumber(event.target.value))}
+                readOnly
               />
               <input
                 className="entry-input"
                 type="number"
                 placeholder="Humanidade"
                 value={sheet.derivadas.humanidade}
-                onChange={(event) => updateNested(['derivadas', 'humanidade'], toNumber(event.target.value))}
+                readOnly
               />
               <input
                 className="entry-input"
                 type="number"
                 placeholder="Humanidade Max"
                 value={sheet.derivadas.humanidadeMax}
-                onChange={(event) =>
-                  updateNested(['derivadas', 'humanidadeMax'], toNumber(event.target.value))
-                }
+                readOnly
               />
               <input
                 className="entry-input"
                 type="number"
                 placeholder="EMP Atual"
                 value={sheet.derivadas.empAtual}
-                onChange={(event) => updateNested(['derivadas', 'empAtual'], toNumber(event.target.value))}
+                readOnly
               />
             </div>
           </div>
@@ -3773,12 +4886,16 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
     }
 
     if (section.id === 'habilidades') {
-      const skillEntries = Object.entries(sheet.habilidades || {});
       const roleAbilityName =
         sheet.identificacao.habilidadePapel || selectedRole?.habilidadePapel?.nome || '';
       const roleAbilityDesc =
         sheet.identificacao.habilidadePapelDescricao || selectedRole?.habilidadePapel?.descricao || '';
       const roleRank = sheet.identificacao.rankHabilidadePapel || 4;
+      const showEditable = creationMethod === 'edgerunner' || creationMethod === 'pacote_completo';
+      const showReadonly = creationMethod === 'ratos_de_rua';
+      const pointsState =
+        skillPointsRemaining < 0 ? 'is-over' : skillPointsRemaining === 0 ? 'is-ok' : '';
+      const nativeLanguage = sheet.lifepath?.linguaNativa || '';
       return (
         <details key={section.id} className="character-section">
           <summary className="character-section-title">{section.label}</summary>
@@ -3792,73 +4909,106 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
                 {roleAbilityDesc ? <div className="entry-card-text">{roleAbilityDesc}</div> : null}
               </div>
             ) : null}
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                placeholder="Nome da habilidade"
-                value={newSkillName}
-                onChange={(event) => setNewSkillName(event.target.value)}
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Nivel"
-                value={newSkillNivel}
-                onChange={(event) => setNewSkillNivel(event.target.value)}
-              />
-              <input
-                className="entry-input"
-                placeholder="STAT"
-                value={newSkillStat}
-                onChange={(event) => setNewSkillStat(event.target.value)}
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Base"
-                value={newSkillBase}
-                onChange={(event) => setNewSkillBase(event.target.value)}
-              />
-              <button className="mission-add-btn" onClick={handleAddSkill}>ADICIONAR</button>
-            </div>
-            {skillEntries.length ? (
-              <div className="entries-list">
-                {skillEntries.map(([name, skill]) => (
-                  <div key={name} className="character-inline-row">
-                    <div className="character-inline-title">{name}</div>
-                    <input
-                      className="entry-input"
-                      type="number"
-                      placeholder="Nivel"
-                      value={skill?.nivel ?? ''}
-                      onChange={(event) =>
-                        handleSkillUpdate(name, 'nivel', toNumber(event.target.value))
-                      }
-                    />
-                    <input
-                      className="entry-input"
-                      placeholder="STAT"
-                      value={skill?.stat ?? ''}
-                      onChange={(event) => handleSkillUpdate(name, 'stat', event.target.value)}
-                    />
-                    <input
-                      className="entry-input"
-                      type="number"
-                      placeholder="Base"
-                      value={skill?.base ?? ''}
-                      onChange={(event) =>
-                        handleSkillUpdate(name, 'base', toNumber(event.target.value))
-                      }
-                    />
-                    <button className="mission-delete-btn" onClick={() => handleRemoveSkill(name)}>
-                      EXCLUIR
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="placeholder-box">Nenhuma habilidade cadastrada.</div>
+            {creationMethod ? null : (
+              <div className="placeholder-box">Selecione um metodo para configurar habilidades.</div>
             )}
+            {showEditable ? (
+              <>
+                <div className="skills-toolbar">
+                  <div className="skills-filters">
+                    {SKILL_CATEGORIES.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        className={`skills-filter-btn ${skillCategory === cat.id ? 'is-active' : ''}`}
+                        onClick={() => setSkillCategory(cat.id)}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className={`skills-points ${pointsState}`}>
+                    Pontos: {skillPointsSpent}/{skillPointsTotal} | Restam: {skillPointsRemaining}
+                  </div>
+                  <button className="mission-action-btn edit" type="button" onClick={handleSuggestMinimumSkills}>
+                    SUGERIR MINIMO
+                  </button>
+                </div>
+                {skillStatus ? <div className="skills-status">{skillStatus}</div> : null}
+                <div className="skills-table">
+                  <div className="skills-row skills-header">
+                    <div className="skills-cell name">Habilidade</div>
+                    <div className="skills-cell stat">STAT</div>
+                    <div className="skills-cell cost">Custo</div>
+                    <div className="skills-cell level">Nivel</div>
+                    <div className="skills-cell total">Total</div>
+                  </div>
+                  {skillRowsVisible.map((row) => (
+                    <div key={row.name} className={`skills-row ${row.required ? 'is-required' : ''}`}>
+                      <div className="skills-cell name">
+                        {row.name}
+                        {row.required ? <span className="skills-tag">Obrigatoria</span> : null}
+                      </div>
+                      <div className="skills-cell stat">{row.stat || '--'}</div>
+                      <div className="skills-cell cost">{row.cost === 2 ? 'x2' : 'x1'}</div>
+                      <div className="skills-cell level">
+                        <input
+                          className="entry-input"
+                          type="number"
+                          min="0"
+                          max="6"
+                          value={row.level}
+                          onChange={(event) => handleSkillLevelChange(row.name, event.target.value)}
+                        />
+                      </div>
+                      <div className="skills-cell total">{(row.level || 0) * (row.cost || 1)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className={`skills-validation ${skillsValid ? 'is-ok' : 'is-warn'}`}>
+                  {skillsValid
+                    ? 'Distribuicao valida. Pontos completos.'
+                    : 'Preencha obrigatorias (min 2), niveis <=6 e totalize 86 pontos.'}
+                </div>
+              </>
+            ) : null}
+            {showReadonly ? (
+              <>
+                {ratoSkills.length ? (
+                  <div className="skills-table">
+                    <div className="skills-row skills-header">
+                      <div className="skills-cell name">Habilidade</div>
+                      <div className="skills-cell stat">STAT</div>
+                      <div className="skills-cell cost">Custo</div>
+                      <div className="skills-cell level">Nivel</div>
+                      <div className="skills-cell total">Total</div>
+                    </div>
+                    {skillRowsAll.map((row) => (
+                      <div key={row.name} className={`skills-row ${row.required ? 'is-required' : ''}`}>
+                        <div className="skills-cell name">
+                          {row.name}
+                          {row.required ? <span className="skills-tag">Obrigatoria</span> : null}
+                        </div>
+                        <div className="skills-cell stat">{row.stat || '--'}</div>
+                        <div className="skills-cell cost">{row.cost === 2 ? 'x2' : 'x1'}</div>
+                        <div className="skills-cell level">{row.level}</div>
+                        <div className="skills-cell total">{(row.level || 0) * (row.cost || 1)}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="placeholder-box">Nenhuma habilidade inicial encontrada para o papel.</div>
+                )}
+              </>
+            ) : null}
+            {nativeLanguage ? (
+              <div className="entry-card">
+                <div className="entry-card-title">Idioma nativo</div>
+                <div className="entry-card-text">
+                  {nativeLanguage} (Nivel 4, gratis)
+                </div>
+              </div>
+            ) : null}
           </div>
         </details>
       );
@@ -4197,30 +5347,54 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
     }
 
     if (section.id === 'estiloVida') {
+      const lifestyleCostLabel = lifestyleOption ? formatMonthlyCost(lifestyleCost, false) : '---';
       return (
         <details key={section.id} className="character-section">
           <summary className="character-section-title">{section.label}</summary>
           <div className="character-section-body">
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                placeholder="Tipo"
-                value={sheet.estiloVida.tipo}
-                onChange={(event) => updateSection('estiloVida', 'tipo', event.target.value)}
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Custo mensal"
-                value={sheet.estiloVida.custoMensal}
-                onChange={(event) => updateSection('estiloVida', 'custoMensal', toNumber(event.target.value))}
-              />
-              <input
-                className="entry-input"
-                placeholder="Pago ate"
-                value={sheet.estiloVida.pagoAte}
-                onChange={(event) => updateSection('estiloVida', 'pagoAte', event.target.value)}
-              />
+            <div className="life-block">
+              <div className="life-block-header">
+                <div className="life-block-title">Estilo de Vida</div>
+                <div className="life-block-subtitle">Defina o nivel de conforto mensal.</div>
+              </div>
+              <div className="life-select-row">
+                <label className="life-label">Selecione o estilo</label>
+                <select
+                  className="entry-input"
+                  value={lifestyleSelectValue}
+                  onChange={(event) => handleLifestyleSelect(event.target.value)}
+                >
+                  <option value="">Selecione...</option>
+                  {LIFESTYLE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label} - E$ {option.cost}/mes
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="life-summary">
+                <div className="life-summary-card">
+                  <div className="life-summary-label">Custo mensal</div>
+                  <div className="life-summary-value">{lifestyleCostLabel}</div>
+                </div>
+                <div className="life-summary-card">
+                  <div className="life-summary-label">Total atual</div>
+                  <div className="life-summary-value">E$ {totalMonthlyCost}/mes</div>
+                </div>
+              </div>
+              {isExecRole ? (
+                <div className="life-note">Exec comeca com Good Prepak (E$ 600/mes).</div>
+              ) : (
+                <div className="life-note">Padrao inicial: Kibble (E$ 100/mes).</div>
+              )}
+              <div className="entry-form compact">
+                <input
+                  className="entry-input"
+                  placeholder="Pago ate"
+                  value={sheet.estiloVida.pagoAte}
+                  onChange={(event) => updateSection('estiloVida', 'pagoAte', event.target.value)}
+                />
+              </div>
             </div>
           </div>
         </details>
@@ -4228,36 +5402,63 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
     }
 
     if (section.id === 'moradia') {
+      const housingCostLabel = housingOption ? formatMonthlyCost(housingCost, housingOption.cost == null) : '---';
       return (
         <details key={section.id} className="character-section">
           <summary className="character-section-title">{section.label}</summary>
           <div className="character-section-body">
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                placeholder="Tipo"
-                value={sheet.moradia.tipo}
-                onChange={(event) => updateSection('moradia', 'tipo', event.target.value)}
-              />
-              <input
-                className="entry-input"
-                placeholder="Localizacao"
-                value={sheet.moradia.localizacao}
-                onChange={(event) => updateSection('moradia', 'localizacao', event.target.value)}
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Aluguel mensal"
-                value={sheet.moradia.aluguelMensal}
-                onChange={(event) => updateSection('moradia', 'aluguelMensal', toNumber(event.target.value))}
-              />
-              <input
-                className="entry-input"
-                placeholder="Pago ate"
-                value={sheet.moradia.pagoAte}
-                onChange={(event) => updateSection('moradia', 'pagoAte', event.target.value)}
-              />
+            <div className="life-block">
+              <div className="life-block-header">
+                <div className="life-block-title">Moradia</div>
+                <div className="life-block-subtitle">Escolha onde voce mora e o custo mensal.</div>
+              </div>
+              <div className="life-select-row">
+                <label className="life-label">Tipo de moradia</label>
+                <select
+                  className="entry-input"
+                  value={housingSelectValue}
+                  onChange={(event) => handleHousingSelect(event.target.value)}
+                >
+                  <option value="">Selecione...</option>
+                  {HOUSING_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                      {option.cost != null ? ` - E$ ${option.cost}/mes` : ' - Compra'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {housingOption?.note ? <div className="life-note">{housingOption.note}</div> : null}
+              {isNomadRole ? (
+                <div className="life-note">Nomade: pode usar Veiculo da Familia (sem aluguel).</div>
+              ) : null}
+              <div className="life-note">
+                Primeiro mes gratis para a moradia padrao. Se escolher outra, o custo mensal pode ser aplicado.
+              </div>
+              <div className="life-summary">
+                <div className="life-summary-card">
+                  <div className="life-summary-label">Moradia</div>
+                  <div className="life-summary-value">{housingCostLabel}</div>
+                </div>
+                <div className="life-summary-card">
+                  <div className="life-summary-label">Total mensal</div>
+                  <div className="life-summary-value">E$ {totalMonthlyCost}/mes</div>
+                </div>
+              </div>
+              <div className="entry-form compact">
+                <input
+                  className="entry-input"
+                  placeholder="Localizacao"
+                  value={sheet.moradia.localizacao}
+                  onChange={(event) => updateSection('moradia', 'localizacao', event.target.value)}
+                />
+                <input
+                  className="entry-input"
+                  placeholder="Pago ate"
+                  value={sheet.moradia.pagoAte}
+                  onChange={(event) => updateSection('moradia', 'pagoAte', event.target.value)}
+                />
+              </div>
             </div>
           </div>
         </details>
@@ -4991,32 +6192,63 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
     }
 
     if (section.id === 'progressao') {
+      const ipAtualValue = Number(sheet.progressao.ipAtual);
+      const ipGastoValue = Number(sheet.progressao.ipGasto);
+      const ipTotalValue = Number(sheet.progressao.ipTotal);
+      const ipAtualNum = Number.isFinite(ipAtualValue) ? ipAtualValue : null;
+      const ipGastoNum = Number.isFinite(ipGastoValue) ? ipGastoValue : null;
+      const ipTotalNum = Number.isFinite(ipTotalValue) ? ipTotalValue : null;
+      const ipCalculatedTotal =
+        ipAtualNum != null && ipGastoNum != null ? ipAtualNum + ipGastoNum : null;
       return (
         <details key={section.id} className="character-section">
           <summary className="character-section-title">{section.label}</summary>
           <div className="character-section-body">
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="IP Atual"
-                value={sheet.progressao.ipAtual}
-                onChange={(event) => updateSection('progressao', 'ipAtual', toNumber(event.target.value))}
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="IP Gasto"
-                value={sheet.progressao.ipGasto}
-                onChange={(event) => updateSection('progressao', 'ipGasto', toNumber(event.target.value))}
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="IP Total"
-                value={sheet.progressao.ipTotal}
-                onChange={(event) => updateSection('progressao', 'ipTotal', toNumber(event.target.value))}
-              />
+            <div className="life-block">
+              <div className="life-block-header">
+                <div className="life-block-title">Progressao</div>
+                <div className="life-block-subtitle">Controle de IP acumulado e gasto.</div>
+              </div>
+              <div className="entry-form compact">
+                <input
+                  className="entry-input"
+                  type="number"
+                  placeholder="IP Atual"
+                  value={sheet.progressao.ipAtual}
+                  onChange={(event) => updateSection('progressao', 'ipAtual', toNumber(event.target.value))}
+                />
+                <input
+                  className="entry-input"
+                  type="number"
+                  placeholder="IP Gasto"
+                  value={sheet.progressao.ipGasto}
+                  onChange={(event) => updateSection('progressao', 'ipGasto', toNumber(event.target.value))}
+                />
+                <input
+                  className="entry-input"
+                  type="number"
+                  placeholder="IP Total"
+                  value={sheet.progressao.ipTotal}
+                  onChange={(event) => updateSection('progressao', 'ipTotal', toNumber(event.target.value))}
+                />
+              </div>
+              <div className="life-summary">
+                <div className="life-summary-card">
+                  <div className="life-summary-label">Atual</div>
+                  <div className="life-summary-value">{ipAtualNum ?? '---'}</div>
+                </div>
+                <div className="life-summary-card">
+                  <div className="life-summary-label">Gasto</div>
+                  <div className="life-summary-value">{ipGastoNum ?? '---'}</div>
+                </div>
+                <div className="life-summary-card">
+                  <div className="life-summary-label">Total</div>
+                  <div className="life-summary-value">
+                    {ipTotalNum ?? (ipCalculatedTotal != null ? `${ipCalculatedTotal} (auto)` : '---')}
+                  </div>
+                </div>
+              </div>
+              <div className="life-note">Sugestao: IP total = IP atual + IP gasto.</div>
             </div>
           </div>
         </details>
@@ -5024,173 +6256,324 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
     }
 
     if (section.id === 'reputacao') {
+      const repValue = Number(sheet.reputacao.nivel);
+      const repLevel = Number.isFinite(repValue) ? repValue : null;
+      const repInfo = repLevel
+        ? REPUTATION_LEVELS.find((entry) => entry.level === repLevel) || null
+        : null;
       return (
         <details key={section.id} className="character-section">
           <summary className="character-section-title">{section.label}</summary>
           <div className="character-section-body">
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Nivel"
-                value={sheet.reputacao.nivel}
-                onChange={(event) => updateSection('reputacao', 'nivel', toNumber(event.target.value))}
-              />
-            </div>
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                placeholder="Descricao do evento"
-                value={newReputationEvent.descricao}
-                onChange={(event) =>
-                  setNewReputationEvent((prev) => ({ ...prev, descricao: event.target.value }))
-                }
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Nivel"
-                value={newReputationEvent.nivel}
-                onChange={(event) =>
-                  setNewReputationEvent((prev) => ({ ...prev, nivel: event.target.value }))
-                }
-              />
-              <button className="mission-add-btn" onClick={handleAddReputationEvent}>
-                ADICIONAR EVENTO
-              </button>
-            </div>
-            {sheet.reputacao.eventos.length ? (
-              <div className="entries-list">
-                {sheet.reputacao.eventos.map((event, index) => (
-                  <div key={`${event.descricao}-${index}`} className="entry-card">
-                    <div className="entry-card-title">{event.descricao}</div>
-                    <div className="entry-card-text">Nivel: {event.nivel}</div>
-                    <button className="mission-delete-btn" onClick={() => handleRemoveReputationEvent(index)}>
-                      EXCLUIR
-                    </button>
-                  </div>
-                ))}
+            <div className="life-block">
+              <div className="life-block-header">
+                <div className="life-block-title">Reputacao</div>
+                <div className="life-block-subtitle">O quao conhecido voce e no Tempo do Vermelho.</div>
               </div>
-            ) : null}
+              <div className="entry-form compact">
+                <input
+                  className="entry-input"
+                  type="number"
+                  placeholder="Nivel"
+                  value={sheet.reputacao.nivel}
+                  onChange={(event) => updateSection('reputacao', 'nivel', toNumber(event.target.value))}
+                />
+              </div>
+              <div className="life-summary">
+                <div className="life-summary-card">
+                  <div className="life-summary-label">Impacto</div>
+                  <div className="life-summary-value">{repInfo?.desc || '---'}</div>
+                </div>
+                <div className="life-summary-card">
+                  <div className="life-summary-label">Nivel atual</div>
+                  <div className="life-summary-value">{repLevel ?? '---'}</div>
+                </div>
+              </div>
+              <div className="life-note">Facedown: COOL + Reputacao + 1d10 (perdedor sofre -2).</div>
+            </div>
+            <div className="life-block">
+              <div className="life-block-header">
+                <div className="life-block-title">Eventos de reputacao</div>
+                <div className="life-block-subtitle">Registre feitos que aumentaram sua fama.</div>
+              </div>
+              <div className="entry-form compact">
+                <input
+                  className="entry-input"
+                  placeholder="Descricao do evento"
+                  value={newReputationEvent.descricao}
+                  onChange={(event) =>
+                    setNewReputationEvent((prev) => ({ ...prev, descricao: event.target.value }))
+                  }
+                />
+                <input
+                  className="entry-input"
+                  type="number"
+                  placeholder="Nivel"
+                  value={newReputationEvent.nivel}
+                  onChange={(event) =>
+                    setNewReputationEvent((prev) => ({ ...prev, nivel: event.target.value }))
+                  }
+                />
+                <button className="mission-add-btn" onClick={handleAddReputationEvent}>
+                  ADICIONAR EVENTO
+                </button>
+              </div>
+              {sheet.reputacao.eventos.length ? (
+                <div className="entries-list">
+                  {sheet.reputacao.eventos.map((event, index) => (
+                    <div key={`${event.descricao}-${index}`} className="entry-card">
+                      <div className="entry-card-title">{event.descricao}</div>
+                      <div className="entry-card-text">Nivel: {event.nivel}</div>
+                      <button className="mission-delete-btn" onClick={() => handleRemoveReputationEvent(index)}>
+                        EXCLUIR
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         </details>
       );
     }
 
     if (section.id === 'equipamento') {
+      const roleEquipment = selectedRole?.equipamentoInicial ?? null;
+      const initialItems = Array.isArray(roleEquipment?.armasEArmadura) ? roleEquipment.armasEArmadura : [];
+      const initialPrograms = Array.isArray(roleEquipment?.programasCyberdeck) ? roleEquipment.programasCyberdeck : [];
+      const showInitial = creationMethod !== 'pacote_completo';
+      const canShop = gearBudgets.general > 0 || gearBudgets.fashion > 0;
       return (
         <details key={section.id} className="character-section">
           <summary className="character-section-title">{section.label}</summary>
           <div className="character-section-body">
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Dinheiro (eb)"
-                value={sheet.equipamento.dinheiro}
-                onChange={(event) => updateSection('equipamento', 'dinheiro', toNumber(event.target.value))}
-              />
-            </div>
-
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                placeholder="Municao: tipo"
-                value={newAmmo.tipo}
-                onChange={(event) => setNewAmmo((prev) => ({ ...prev, tipo: event.target.value }))}
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Quantidade"
-                value={newAmmo.quantidade}
-                onChange={(event) => setNewAmmo((prev) => ({ ...prev, quantidade: event.target.value }))}
-              />
-              <button className="mission-add-btn" onClick={handleAddAmmo}>ADICIONAR MUNICAO</button>
-            </div>
-            {Object.keys(sheet.equipamento.municao).length ? (
-              <div className="entries-list">
-                {Object.entries(sheet.equipamento.municao).map(([tipo, quantidade]) => (
-                  <div key={tipo} className="entry-card">
-                    <div className="entry-card-title">{tipo}</div>
-                    <div className="entry-card-text">Qtd: {quantidade}</div>
-                    <button className="mission-delete-btn" onClick={() => handleRemoveAmmo(tipo)}>
-                      EXCLUIR
-                    </button>
-                  </div>
-                ))}
+            <div className="gear-block">
+              <div className="gear-block-header">
+                <div className="gear-block-title">Equipamento inicial</div>
+                <div className="gear-block-subtitle">
+                  {showInitial ? 'Ratos de Rua / Edgerunners' : 'Pacote Completo escolhe tudo na loja'}
+                </div>
               </div>
-            ) : null}
-
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                placeholder="Granada: tipo"
-                value={newGrenade.tipo}
-                onChange={(event) => setNewGrenade((prev) => ({ ...prev, tipo: event.target.value }))}
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Quantidade"
-                value={newGrenade.quantidade}
-                onChange={(event) => setNewGrenade((prev) => ({ ...prev, quantidade: event.target.value }))}
-              />
-              <button className="mission-add-btn" onClick={handleAddGrenade}>ADICIONAR GRANADA</button>
-            </div>
-            {Object.keys(sheet.equipamento.granadas).length ? (
-              <div className="entries-list">
-                {Object.entries(sheet.equipamento.granadas).map(([tipo, quantidade]) => (
-                  <div key={tipo} className="entry-card">
-                    <div className="entry-card-title">{tipo}</div>
-                    <div className="entry-card-text">Qtd: {quantidade}</div>
-                    <button className="mission-delete-btn" onClick={() => handleRemoveGrenade(tipo)}>
-                      EXCLUIR
-                    </button>
+              {showInitial ? (
+                initialItems.length || initialPrograms.length ? (
+                  <div className="gear-list">
+                    {initialItems.map((entry) => (
+                      <div className="gear-list-row" key={`${entry.item}-${entry.quantidade ?? entry.sp ?? ''}`}>
+                        <span className="gear-list-name">{entry.item}</span>
+                        <span className="gear-list-meta">
+                          {entry.quantidade != null ? `x${entry.quantidade}` : ''}
+                          {entry.sp != null ? `SP ${entry.sp}` : ''}
+                        </span>
+                      </div>
+                    ))}
+                    {initialPrograms.length ? (
+                      <div className="gear-list-group">
+                        <div className="gear-list-label">Programas de Cyberdeck</div>
+                        {initialPrograms.map((entry) => (
+                          <div className="gear-list-row" key={`programa-${entry.nome}`}>
+                            <span className="gear-list-name">{entry.nome}</span>
+                            <span className="gear-list-meta">x{entry.quantidade}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {roleEquipment?.moda?.estilos?.length ? (
+                      <div className="gear-list-group">
+                        <div className="gear-list-label">Moda sugerida</div>
+                        <div className="gear-tag-row">
+                          {roleEquipment.moda.estilos.map((item) => (
+                            <span key={item} className="entry-tag">
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {roleEquipment?.moda?.adornos?.length ? (
+                      <div className="gear-list-group">
+                        <div className="gear-list-label">Adornos</div>
+                        <div className="gear-tag-row">
+                          {roleEquipment.moda.adornos.map((item) => (
+                            <span key={item} className="entry-tag">
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                ))}
+                ) : (
+                  <div className="gear-muted">Selecione um papel para ver o kit inicial.</div>
+                )
+              ) : (
+                <div className="gear-muted">No pacote completo voce monta todo o kit no mercado abaixo.</div>
+              )}
+              <div className="gear-actions">
+                <button
+                  className="mission-action-btn edit"
+                  type="button"
+                  onClick={() =>
+                    handleApplyInitialEquipment({ force: Boolean(sheet.criacao?.equipamentoInicialAplicado) })
+                  }
+                  disabled={!showInitial || !selectedRole}
+                >
+                  {sheet.criacao?.equipamentoInicialAplicado ? 'REAPLICAR KIT' : 'APLICAR AO INVENTARIO'}
+                </button>
+                {sheet.criacao?.equipamentoInicialAplicado ? (
+                  <button
+                    className="mission-action-btn delete"
+                    type="button"
+                    onClick={handleResetInitialEquipment}
+                  >
+                    LIBERAR KIT
+                  </button>
+                ) : null}
               </div>
-            ) : null}
-
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                placeholder="Item"
-                value={newItem.nome}
-                onChange={(event) => setNewItem((prev) => ({ ...prev, nome: event.target.value }))}
-              />
-              <input
-                className="entry-input"
-                type="number"
-                placeholder="Quantidade"
-                value={newItem.quantidade}
-                onChange={(event) => setNewItem((prev) => ({ ...prev, quantidade: event.target.value }))}
-              />
-              <button className="mission-add-btn" onClick={handleAddItem}>ADICIONAR ITEM</button>
             </div>
-            {sheet.equipamento.itens.length ? (
-              <div className="entries-list">
-                {sheet.equipamento.itens.map((item, index) => (
-                  <div key={`${item.nome}-${index}`} className="entry-card">
-                    <div className="entry-card-title">{item.nome}</div>
-                    <div className="entry-form compact">
-                      <input
-                        className="entry-input"
-                        type="number"
-                        placeholder="Quantidade"
-                        value={item.quantidade ?? ''}
-                        onChange={(event) =>
-                          handleUpdateItem(index, 'quantidade', toNumber(event.target.value))
-                        }
-                      />
-                      <button className="mission-delete-btn" onClick={() => handleRemoveItem(index)}>
-                        EXCLUIR
-                      </button>
+
+            <div className="gear-block">
+              <div className="gear-block-header">
+                <div className="gear-block-title">Mercado Noturno</div>
+                <div className="gear-block-subtitle">Escolha itens do catalogo e envie ao inventario.</div>
+              </div>
+              <div className="gear-budget-row">
+                <div className="gear-budget-card">
+                  <div className="gear-budget-label">Saldo geral</div>
+                  <div className={`gear-budget-value ${gearRemainingGeneral < 0 ? 'is-negative' : ''}`}>
+                    E$ {gearRemainingGeneral}
+                  </div>
+                </div>
+                {gearBudgets.fashion > 0 ? (
+                  <div className="gear-budget-card">
+                    <div className="gear-budget-label">Saldo moda</div>
+                    <div className={`gear-budget-value ${gearRemainingFashion < 0 ? 'is-negative' : ''}`}>
+                      E$ {gearRemainingFashion}
                     </div>
                   </div>
-                ))}
+                ) : null}
+                <div className="gear-budget-card">
+                  <div className="gear-budget-label">Metodo</div>
+                  <div className="gear-budget-value">
+                    {creationMethod ? creationMethod.replace(/_/g, ' ') : '---'}
+                  </div>
+                </div>
               </div>
-            ) : null}
+              {!creationMethod ? (
+                <div className="gear-muted">Selecione um metodo na etapa anterior para liberar o orcamento.</div>
+              ) : null}
+
+              <div className="gear-filter-row">
+                <select
+                  className="entry-input"
+                  value={shopCategory}
+                  onChange={(event) => setShopCategory(event.target.value)}
+                >
+                  {CATEGORY_FILTERS.filter((cat) => cat.id !== 'all' && cat.id !== 'services' && cat.id !== 'housing').map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.label}
+                    </option>
+                  ))}
+                  <option value="all">Todos</option>
+                </select>
+                <input
+                  className="entry-input"
+                  placeholder="Buscar item"
+                  value={shopSearch}
+                  onChange={(event) => setShopSearch(event.target.value)}
+                />
+              </div>
+
+              <div className="gear-catalog-grid">
+                {filteredShopItems.length ? (
+                  filteredShopItems.map((item) => {
+                    const categoryLabel = findLabel(CATEGORY_FILTERS, item.category);
+                    const isFashion = item.category === 'fashion';
+                    const remaining = isFashion ? gearRemainingFashion : gearRemainingGeneral;
+                    const canBuy = canShop && remaining - (Number(item.priceEb) || 0) >= 0;
+                    return (
+                      <div key={item.id} className="gear-item-card">
+                        <div className="gear-item-name">{item.name}</div>
+                        <div className="gear-item-meta">
+                          {categoryLabel} | E$ {item.priceEb}
+                          {item.priceNote ? ` (${item.priceNote})` : ''}
+                        </div>
+                        {item.description ? <div className="gear-item-desc">{item.description}</div> : null}
+                        <button
+                          className="gear-item-btn"
+                          type="button"
+                          onClick={() => handleAddToCart(item)}
+                          disabled={!canBuy}
+                        >
+                          {canBuy ? 'ADICIONAR' : 'SEM SALDO'}
+                        </button>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="gear-muted">Nenhum item encontrado com esses filtros.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="gear-block gear-cart">
+              <div className="gear-block-header">
+                <div className="gear-block-title">Itens comprados</div>
+                <div className="gear-block-subtitle">Carrinho atual</div>
+              </div>
+              {gearCart.length ? (
+                <div className="gear-cart-list">
+                  {gearCart.map((entry) => (
+                    <div key={entry.item.id} className="gear-cart-item">
+                      <div className="gear-cart-main">
+                        <div className="gear-cart-name">{entry.item.name}</div>
+                        <div className="gear-cart-meta">
+                          {findLabel(CATEGORY_FILTERS, entry.item.category)} | E$ {entry.item.priceEb} | Qtd {entry.quantity}
+                        </div>
+                      </div>
+                      <div className="gear-cart-actions">
+                        <button
+                          className="gear-cart-btn"
+                          type="button"
+                          onClick={() => handleRemoveCartItem(entry)}
+                        >
+                          REMOVER
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="gear-muted">Carrinho vazio.</div>
+              )}
+              <div className="gear-cart-footer">
+                <button
+                  className="mission-add-btn"
+                  type="button"
+                  onClick={handleCheckoutCart}
+                  disabled={!gearCart.length}
+                >
+                  ENVIAR PARA INVENTARIO
+                </button>
+                <div className="gear-cart-totals">
+                  <div>Gasto geral: E$ {gearSpent.general}</div>
+                  {gearBudgets.fashion > 0 ? <div>Gasto moda: E$ {gearSpent.fashion}</div> : null}
+                </div>
+                {gearStatus ? <div className="gear-status">{gearStatus}</div> : null}
+              </div>
+            </div>
+
+            <div className="gear-block gear-summary">
+              <div className="gear-block-title">Inventario atual</div>
+              <div className="gear-summary-row">
+                Posses: {inventorySnapshot?.possessions?.length || 0}
+              </div>
+              <div className="gear-summary-row">
+                Grid: {inventorySnapshot ? `${inventorySnapshot.gridCols}x${inventorySnapshot.gridRows}` : '---'}
+              </div>
+              <div className="gear-summary-row">
+                Itens no grid: {inventorySnapshot?.items?.length || 0}
+              </div>
+            </div>
           </div>
         </details>
       );
@@ -5413,4 +6796,3 @@ export default function CharacterProfilePanel({ campaignId, playerId, onBack }) 
     </div>
   );
 }
-

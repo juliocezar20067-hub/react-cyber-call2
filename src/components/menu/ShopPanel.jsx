@@ -220,6 +220,14 @@ export default function ShopPanel({ onBack, playerId, campaignId, role }) {
     };
   };
 
+  const parsePackSize = (note) => {
+    if (!note) return 1;
+    const match = String(note).match(/(\d+)/);
+    if (!match) return 1;
+    const value = Number(match[1]);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  };
+
   const handlePurchase = async (item) => {
     if (!item || !playerId || !campaignId) return;
     playSound('button');
@@ -239,20 +247,40 @@ export default function ShopPanel({ onBack, playerId, campaignId, role }) {
     const gridConfig = resolveInventoryConfig(item);
     const nextItems = [...currentItems];
     if (gridConfig) {
-      const index = nextItems.length;
-      nextItems.push({
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        itemId: item.id,
-        name: item.name,
-        w: gridConfig.w,
-        h: gridConfig.h,
-        rotated: false,
-        color: gridConfig.color,
-        imageUrl: item.imageUrl ?? '',
-        location: 'pool',
-        x: 10 + (index % 4) * 14,
-        y: 10 + (index % 6) * 14,
-      });
+      if (item.category === 'ammo') {
+        const packSize = parsePackSize(item.priceNote);
+        const index = nextItems.length;
+        nextItems.push({
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          itemId: item.id,
+          name: item.name,
+          w: gridConfig.w,
+          h: gridConfig.h,
+          rotated: false,
+          stackQty: packSize,
+          color: gridConfig.color,
+          imageUrl: item.imageUrl ?? '',
+          location: 'pool',
+          x: 10 + (index % 4) * 14,
+          y: 10 + (index % 6) * 14,
+        });
+      } else {
+        const index = nextItems.length;
+        nextItems.push({
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          itemId: item.id,
+          name: item.name,
+          w: gridConfig.w,
+          h: gridConfig.h,
+          rotated: false,
+          stackQty: 1,
+          color: gridConfig.color,
+          imageUrl: item.imageUrl ?? '',
+          location: 'pool',
+          x: 10 + (index % 4) * 14,
+          y: 10 + (index % 6) * 14,
+        });
+      }
     }
 
     const nextPossessions = [...currentPossessions];
@@ -261,7 +289,9 @@ export default function ShopPanel({ onBack, playerId, campaignId, role }) {
       const existing = nextPossessions[existingIndex];
       nextPossessions[existingIndex] = {
         ...existing,
-        quantity: (Number(existing.quantity) || 1) + 1,
+        quantity:
+          (Number(existing.quantity) || 1) +
+          (item.category === 'ammo' ? parsePackSize(item.priceNote) : 1),
       };
     } else {
       nextPossessions.unshift({
@@ -272,9 +302,10 @@ export default function ShopPanel({ onBack, playerId, campaignId, role }) {
         priceEb: item.priceEb ?? 0,
         priceTier: item.priceTier ?? '',
         source: item.source ?? '',
-        quantity: 1,
+        quantity: item.category === 'ammo' ? parsePackSize(item.priceNote) : 1,
         grid: gridConfig ? { w: gridConfig.w, h: gridConfig.h } : null,
         imageUrl: item.imageUrl ?? '',
+        equipped: false,
       });
     }
 

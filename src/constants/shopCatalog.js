@@ -12,6 +12,7 @@ export const PRICE_TIERS = [
 export const CATEGORY_FILTERS = [
   { id: 'all', label: 'Todos' },
   { id: 'gear', label: 'Equipamento' },
+  { id: 'fashion', label: 'Moda' },
   { id: 'melee', label: 'Armas Brancas' },
   { id: 'ranged', label: 'Armas Longo Alcance' },
   { id: 'exotic', label: 'Armas Exoticas' },
@@ -34,6 +35,7 @@ export const SOURCE_FILTERS = [
 
 export const INVENTORY_CATEGORY_DEFAULTS = {
   gear: { w: 1, h: 1, color: '#4d80ff' },
+  fashion: { w: 1, h: 1, color: '#ff87d4' },
   melee: { w: 1, h: 2, color: '#ff6b6b' },
   ranged: { w: 2, h: 1, color: '#ff3a3a' },
   exotic: { w: 2, h: 2, color: '#ff3a3a' },

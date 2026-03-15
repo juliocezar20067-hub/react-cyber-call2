@@ -13,6 +13,7 @@ export default function useCallFlow() {
   const openInventory = useCallback(() => setCurrentView('inventory'), []);
   const openShop = useCallback(() => setCurrentView('shop'), []);
   const openCombat = useCallback(() => setCurrentView('combat'), []);
+  const openCyberware = useCallback(() => setCurrentView('cyberware'), []);
   const openCharacterProfile = useCallback(() => setCurrentView('characterProfile'), []);
   const openMenu = useCallback(() => setCurrentView('menu'), []);
   const openCall = useCallback(() => setCurrentView('call'), []);
@@ -29,6 +30,7 @@ export default function useCallFlow() {
     openInventory,
     openShop,
     openCombat,
+    openCyberware,
     openCharacterProfile,
     openMenu,
     openCall,
