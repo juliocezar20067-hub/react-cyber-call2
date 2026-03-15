@@ -1,283 +1,18 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { playSound } from '../../sound/soundSystem';
-import { setStoredState, subscribeStoredState } from '../../lib/stateStorage';
+import { getStoredState, setStoredState, subscribeStoredState } from '../../lib/stateStorage';
 import './Menu.css';
 
-const CELL_SIZE = 32;
+const GRID_SCOPE = 'combat_grid_v3';
+
+const CELL_SIZE = 2;
 const CELL_METERS = 2;
 const MIN_COLS = 8;
 const MAX_COLS = 40;
 const MIN_ROWS = 6;
 const MAX_ROWS = 30;
-
-const COMBAT_OVERVIEW = [
-  {
-    title: 'Tempo e turnos',
-    text: 'Cada rodada dura cerca de 3 segundos. Em cada turno: 1 Acao de Movimento + 1 Acao.',
-  },
-  {
-    title: 'Iniciativa',
-    text: 'Iniciativa = REF + 1d10. Ordem decrescente; empate rola novamente.',
-  },
-];
-
-const COMBAT_ACTIONS = [
-  { action: 'Acao de Movimento', description: 'Move ate MOVE x 2 metros/jardas.' },
-  { action: 'Ataque', description: 'Ataque corpo a corpo ou a distancia.' },
-  { action: 'Agarrar', description: 'Inicia ou escapa de agarramento; toma objeto.' },
-  { action: 'Estrangular', description: '(Requer agarrando) dano = BODY direto nos PV.' },
-  { action: 'Derrubar', description: '(Requer agarrando) derruba e causa dano = BODY.' },
-  { action: 'Recarregar', description: 'Troca carregador (uma acao).' },
-  { action: 'Usar Objeto', description: 'Abrir porta, pegar item, etc.' },
-  { action: 'Acao Mantida', description: 'Aguarda um gatilho para agir.' },
-  { action: 'Correr', description: 'Ganha uma segunda Acao de Movimento.' },
-  { action: 'Entrar no Veiculo', description: 'Entra em veiculo destrancado.' },
-  { action: 'Ligar Veiculo', description: 'Liga veiculo e sobe na iniciativa.' },
-  { action: 'Estabilizar', description: 'Salva alguem de morrer.' },
-  { action: 'Usar Escudo', description: 'Equipar ou soltar escudo (custa acao).' },
-  { action: 'Escudo Humano', description: 'Usa oponente agarrado como cobertura.' },
-  { action: 'Usar Habilidade', description: 'Teste rapido (ate 3s).' },
-];
-
-const RANGED_DV_TABLE = [
-  { weapon: 'Pistola', ranges: ['13', '15', '20', '25', '30', '-'] },
-  { weapon: 'SMG', ranges: ['15', '13', '15', '20', '25', '30'] },
-  { weapon: 'Espingarda', ranges: ['13', '15', '20', '25', '30', '35'] },
-  { weapon: 'Rifle de Assalto', ranges: ['17', '16', '15', '13', '15', '20'] },
-  { weapon: 'Rifle Sniper', ranges: ['30', '25', '25', '20', '15', '16'] },
-  { weapon: 'Arco/Besta', ranges: ['15', '13', '15', '17', '20', '22'] },
-  { weapon: 'Lanca-granadas', ranges: ['16', '15', '15', '17', '20', '22'] },
-  { weapon: 'Lanca-misseis', ranges: ['17', '16', '15', '15', '20', '20'] },
-];
-
-const RANGED_RESOLUTION = [
-  'Atacante: REF + habilidade da arma + 1d10.',
-  'Defensor pode usar DEX + Evasao + 1d10 se tiver REF 8+.',
-  'Empate: defensor vence.',
-];
-
-const AUTOFIRE_TABLE = [
-  { weapon: 'SMG', ranges: ['20', '17', '20', '25', '30'] },
-  { weapon: 'Rifle Assalto', ranges: ['22', '20', '17', '20', '25'] },
-];
-
-const SPECIAL_FIRE_MODES = [
-  {
-    title: 'Disparo Automatico',
-    text:
-      'Gasta 10 balas. Usa habilidade Autofire. Dano = 2d6 x (quanto passou do DV), limitado ao multiplicador da arma (SMG 3, rifle 4). Se ambos os d6 forem 6, causa Lesao Critica.',
-  },
-  {
-    title: 'Disparo Supressivo',
-    text:
-      'Gasta 10 balas. Todos em 25m, fora de cobertura e em LoS fazem WILL + Concentracao + 1d10 vs REF + Autofire + 1d10. Quem falhar deve usar a proxima Acao de Movimento para entrar em cobertura.',
-  },
-  {
-    title: 'Explosivos',
-    text:
-      'Area 10m x 10m. Causa dano a todos na area. Se errar DV, o GM decide onde caiu (dentro da area alvo).',
-  },
-  {
-    title: 'Carga de Chumbo (Shotgun)',
-    text:
-      'Dispara contra DV13, acerta todos dentro de 6m a sua frente (3 quadrados) com 3d6 de dano cada.',
-  },
-];
-
-const SPECIAL_AMMO = [
-  'Anti-blindagem: reduz SP em 2 ao inves de 1.',
-  'Incendiaria: 2 de dano por turno ate apagar.',
-  'Borracha: nao causa lesao critica; se reduzir a <1 HP, deixa com 1 HP.',
-  'Inteligente: se errar por 4 ou menos, rerrola com +10 (requer link de arma inteligente).',
-  'EMP (granadas): teste Cybertech DV15; falha desativa 2 cyberwares por 1 minuto.',
-  'Outros: veneno, biotoxina, gas lacrimogeneo, flashbang.',
-];
-
-const MELEE_WEAPONS_TABLE = [
-  { type: 'Leve', examples: 'Faca, tomahawk', damage: '1d6', hands: '1', concealable: 'Sim', cost: '50eb' },
-  { type: 'Media', examples: 'Taco, facao', damage: '2d6', hands: '1 ou 2', concealable: 'Nao', cost: '50eb' },
-  { type: 'Pesada', examples: 'Espada, cano de chumbo', damage: '3d6', hands: '1 ou 2', concealable: 'Nao', cost: '100eb' },
-  { type: 'Muito Pesada', examples: 'Motosserra, marreta', damage: '4d6', hands: '2', concealable: 'Nao', cost: '500eb' },
-];
-
-const MELEE_RESOLUTION = [
-  'Atacante: DEX + habilidade (Briga/Arma Branca/Artes Marciais) + 1d10.',
-  'Defensor: DEX + Evasao + 1d10. Empate: defensor vence.',
-  'Armas brancas ignoram metade do SP (arredondado para cima).',
-  'Armas muito pesadas: CDT 1. Demais: CDT 2.',
-];
-
-const BRAWLING_RULES = [
-  'Dano baseado em BODY:',
-  'BODY <= 4: 1d6 | BODY 5-6: 2d6 | BODY 7-10: 3d6 | BODY 11+: 4d6.',
-  'Cyberarm: dano minimo 2d6 se BODY <= 4.',
-  'Agarrados sofrem -2 em todas as acoes e nao podem usar Acao de Movimento (sao arrastados).',
-];
-
-const GRAPPLE_ACTIONS = [
-  'Iniciar: DEX + Brawling + 1d10 vs oponente.',
-  'Vencer: pode agarrar ou tomar objeto.',
-  'Escapar: nova disputa de agarramento.',
-  'Estrangular: dano = BODY direto no HP (ignora armadura). 3 turnos seguidos deixam inconsciente.',
-  'Derrubar: dano = BODY e alvo cai.',
-];
-
-const MARTIAL_ARTS_STYLES = [
-  {
-    style: 'Recuperacao (comum)',
-    moves: ['Ao levantar, teste DV13 para nao gastar acao.'],
-  },
-  {
-    style: 'Aikido',
-    moves: [
-      'Desarme Combinado: acertar Briga e Arte Marcial no mesmo turno, DV15 para desarmar.',
-      'Aperto de Ferro: agarrando, DV15; alvo -2 para escapar e nao pode atacar a distancia.',
-    ],
-  },
-  {
-    style: 'Karate',
-    moves: [
-      'Combinacao Quebra Armadura: acertar arma branca e arte marcial, DV15; armadura perde +2 SP.',
-      'Golpe Quebra Ossos (WILL 8+): ataque unico com -8 opcional na cabeca; causa Lesao Critica.',
-    ],
-  },
-  {
-    style: 'Judo',
-    moves: [
-      'Contra-Queda: se desviou de todos ataques corpo a corpo desde ultimo turno, DV15 para derrubar.',
-      'Escape de Agarrao: acertar 2 ataques em quem agarra voce, DV15; escapa e causa Braco Quebrado.',
-    ],
-  },
-  {
-    style: 'Taekwondo',
-    moves: [
-      'Golpe de Pontos de Pressao (WILL 8+): ataque unico causa Lesao Espinhal; com -8 na cabeca, Lesao Cerebral.',
-      'Voadora (MOVE 8+): mova 4m no turno; ataque em linha reta, alvo cai e sai de veiculo aberto.',
-    ],
-  },
-];
-
-const DEFENSE_RULES = [
-  'Qualquer um pode usar Evasao contra ataques corpo a corpo.',
-  'Se tiver REF 8+, pode usar Evasao contra ataques a distancia e explosoes.',
-];
-
-const COVER_RULES = [
-  'Cobertura 2x2m tem HP baseado no material.',
-  'Quando a cobertura chega a 0 HP, e destruida; excesso nao passa para quem esta atras (exceto explosivos).',
-];
-
-const COVER_MATERIALS = [
-  { material: 'Aco', thick: 50, thin: 25 },
-  { material: 'Pedra', thick: 40, thin: 20 },
-  { material: 'Vidro Blindado', thick: 30, thin: 15 },
-  { material: 'Concreto', thick: 25, thin: 10 },
-  { material: 'Madeira', thick: 20, thin: 5 },
-  { material: 'Gesso/Espuma', thick: 15, thin: 0 },
-];
-
-const SHIELD_RULES = [
-  'Escudo Balistico: 10 HP, ocupa uma mao, fornece cobertura. Escudo recebe o dano.',
-  'Escudo Humano: usa oponente agarrado como cobertura. Ele sofre o dano.',
-  'Nao pode bloquear ataques corpo a corpo ou tiros na cabeca.',
-];
-
-const ARMOR_RULES = [
-  'Cada local (cabeca/corpo) tem SP (Stop Power).',
-  'Nao acumula: vale a maior armadura no local.',
-  'Penalidade: algumas armaduras reduzem REF/DEX/MOVE.',
-  'Ablacao: se sofreu dano, SP do local atingido -1.',
-];
-
-const ARMOR_TABLE = [
-  { armor: 'Couro', sp: 4, penalty: 'Nenhuma', cost: '20eb' },
-  { armor: 'Kevlar', sp: 7, penalty: 'Nenhuma', cost: '50eb' },
-  { armor: 'Blindagem Leve', sp: 11, penalty: 'Nenhuma', cost: '100eb' },
-  { armor: 'Traje Corporal', sp: 11, penalty: 'Nenhuma', cost: '1000eb' },
-  { armor: 'Blindagem Media', sp: 12, penalty: '-2 REF, DEX, MOVE', cost: '100eb' },
-  { armor: 'Blindagem Pesada', sp: 13, penalty: '-2 REF, DEX, MOVE', cost: '500eb' },
-  { armor: 'Flak', sp: 15, penalty: '-4 REF, DEX, MOVE', cost: '500eb' },
-  { armor: 'Metalgear', sp: 18, penalty: '-4 REF, DEX, MOVE', cost: '5000eb' },
-];
-
-const DAMAGE_STEPS = [
-  'Atacante rola dano.',
-  'Subtrai SP do local atingido (cabeca ou corpo).',
-  'Dano restante reduz HP.',
-  'Se algum dano passou, armadura sofre ablacao (SP -1).',
-];
-
-const WOUND_STATES = [
-  { state: 'Leve', threshold: 'Abaixo do HP total', effects: 'Nenhum', dv: '10' },
-  { state: 'Grave', threshold: 'Abaixo da metade do HP', effects: '-2 em todas as acoes', dv: '13' },
-  {
-    state: 'Mortal',
-    threshold: 'Abaixo de 1 HP',
-    effects: '-4 acoes, -6 MOVE (min 1), Death Save por turno, lesao critica a cada ataque, penalidade cumulativa',
-    dv: '15 (volta a 1 HP e fica inconsciente por 1 minuto)',
-  },
-  { state: 'Morto', threshold: 'Falha no Death Save', effects: '-', dv: '-' },
-];
-
-const DEATH_SAVE_RULES = [
-  'No inicio de cada turno em estado Mortal, role 1d10.',
-  'Se resultado <= BODY, sobrevive.',
-  'Se rolar 10, falha automaticamente.',
-  'Cada Death Save acumula +1 na rolagem.',
-  'Lesoes criticas podem aumentar o valor base do Death Save.',
-];
-
-const CRIT_INJURY_RULES = [
-  'Dois ou mais dados de dano mostrando 6 causam Lesao Critica.',
-  'Role 2d6 na tabela apropriada (corpo ou cabeca).',
-  'Causa 5 de dano bonus direto no HP e um efeito debilitante.',
-  'Tratamento: Correcao Rapida (1 minuto, dura 1 dia) ou Tratamento (4 horas).',
-];
-
-const CRIT_BODY_TABLE = [
-  { roll: 2, result: 'Braco desmembrado' },
-  { roll: 3, result: 'Mao desmembrada' },
-  { roll: 4, result: 'Pulmao colapsado' },
-  { roll: 5, result: 'Costelas quebradas' },
-  { roll: 6, result: 'Braco quebrado' },
-  { roll: 7, result: 'Objeto estranho alojado' },
-  { roll: 8, result: 'Perna quebrada' },
-  { roll: 9, result: 'Lesao muscular' },
-  { roll: 10, result: 'Lesao na coluna' },
-  { roll: 11, result: 'Dedos esmagados' },
-  { roll: 12, result: 'Perna desmembrada' },
-];
-
-const CRIT_HEAD_TABLE = [
-  { roll: 2, result: 'Olho perdido' },
-  { roll: 3, result: 'Lesao cerebral' },
-  { roll: 4, result: 'Olho danificado' },
-  { roll: 5, result: 'Contusao' },
-  { roll: 6, result: 'Maxilar quebrado' },
-  { roll: 7, result: 'Objeto estranho alojado' },
-  { roll: 8, result: 'Torcicolo' },
-  { roll: 9, result: 'Traumatismo craniano' },
-  { roll: 10, result: 'Ouvido danificado' },
-  { roll: 11, result: 'Traqueia esmagada' },
-  { roll: 12, result: 'Ouvido perdido' },
-];
-
-const STABILIZATION_RULES = [
-  'Acao: TECH + Primeiros Socorros ou Paramedico + 1d10 vs DV.',
-  'Leve: DV10 | Grave: DV13 | Mortal: DV15.',
-  'Se bem-sucedido em Mortal: volta a 1 HP e fica inconsciente por 1 minuto.',
-];
-
-const NATURAL_HEALING = [
-  'Apos estabilizado, cura BODY PV por dia de descanso.',
-  'Pode ser acelerado por drogas (Speedheal, etc.) ou tratamento hospitalar.',
-];
-
-const CRIT_TREATMENT = [
-  'Correcao Rapida: 1 minuto, remove efeito por 1 dia.',
-  'Tratamento: 4 horas, cura permanente.',
-  'Requer Cirurgia (Medtech) ou Cybertech para lesoes em cyberware.',
-];
 
 const WEAPONS = {
   pistola: { name: 'Pistola', dice: 2, rangeType: 'pistol', melee: false, halfSp: false },
@@ -301,71 +36,38 @@ const RANGE_DV = {
   arco: [15, 13, 15, 17, 20, 22],
 };
 
-const DEFAULT_TOKEN = {
-  name: 'Token',
-  team: '1',
-  color: '#d43a3a',
-  hp: 30,
-  maxHp: 30,
-  body: 6,
-  ref: 6,
-  dex: 6,
-  skill: 6,
-  evasion: 6,
-  move: 6,
-  sp: 7,
-  weaponKey: 'pistola',
-  autoDodge: true,
+const DEFAULT_STATE = {
+  grid: { cols: 20, rows: 14 },
+  tokens: [],
+  cells: {},
+  coverHpDefault: 20,
+  combat: {
+    active: false,
+    phase: 'setup',
+    round: 0,
+    turnOrder: [],
+    turnIndex: 0,
+    hasMoved: false,
+    hasActed: false,
+    log: [],
+  },
 };
 
-const NUMERIC_FIELDS = new Set(['hp', 'maxHp', 'body', 'ref', 'dex', 'skill', 'evasion', 'move', 'sp']);
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const rollDie = (sides) => Math.floor(Math.random() * sides) + 1;
+const rollD6 = (count) => Array.from({ length: count }, () => rollDie(6));
+const getBrawlDice = (body) => (body <= 4 ? 1 : body <= 6 ? 2 : body <= 10 ? 3 : 4);
+const getRangeBand = (distance) =>
+  distance <= 6 ? 0 : distance <= 12 ? 1 : distance <= 25 ? 2 : distance <= 50 ? 3 : distance <= 100 ? 4 : 5;
+const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
+const getDistanceMeters = (a, b) => {
+  const dx = (a.x - b.x) * CELL_METERS;
+  const dy = (a.y - b.y) * CELL_METERS;
+  return Math.sqrt(dx * dx + dy * dy);
+};
 
-function findOpenCell(tokens, cols, rows) {
-  const occupied = new Set(tokens.map((token) => `${token.x},${token.y}`));
-  for (let y = 0; y < rows; y += 1) {
-    for (let x = 0; x < cols; x += 1) {
-      const key = `${x},${y}`;
-      if (!occupied.has(key)) return { x, y };
-    }
-  }
-  return null;
-}
-
-function rollDie(sides) {
-  return Math.floor(Math.random() * sides) + 1;
-}
-
-function rollD6(count) {
-  return Array.from({ length: count }, () => rollDie(6));
-}
-
-function getBrawlDice(body) {
-  if (body <= 4) return 1;
-  if (body <= 6) return 2;
-  if (body <= 10) return 3;
-  return 4;
-}
-
-function getRangeBand(distance) {
-  if (distance <= 6) return 0;
-  if (distance <= 12) return 1;
-  if (distance <= 25) return 2;
-  if (distance <= 50) return 3;
-  if (distance <= 100) return 4;
-  return 5;
-}
-
-function getDistanceMeters(a, b) {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return Math.sqrt(dx * dx + dy * dy) * CELL_METERS;
-}
-
-function hasLineOfSight(start, end, isBlocked) {
+const hasLineOfSight = (start, end, isWall) => {
   let x0 = start.x;
   let y0 = start.y;
   const x1 = end.x;
@@ -375,10 +77,9 @@ function hasLineOfSight(start, end, isBlocked) {
   const sx = x0 < x1 ? 1 : -1;
   const sy = y0 < y1 ? 1 : -1;
   let err = dx - dy;
-
   while (x0 !== x1 || y0 !== y1) {
     if (x0 !== start.x || y0 !== start.y) {
-      if (isBlocked(x0, y0)) return false;
+      if (isWall(x0, y0)) return false;
     }
     const e2 = 2 * err;
     if (e2 > -dy) {
@@ -391,1593 +92,1458 @@ function hasLineOfSight(start, end, isBlocked) {
     }
   }
   return true;
-}
+};
 
-function buildMoveRange(start, maxSteps, isBlocked, isOccupied, cols, rows) {
+const buildMoveRange = (start, maxSteps, isBlocked, isOccupied, cols, rows) => {
   const visited = new Set([`${start.x},${start.y}`]);
   const queue = [{ x: start.x, y: start.y, steps: 0 }];
   const reachable = new Set();
-
   while (queue.length) {
-    const current = queue.shift();
-    if (current.steps > 0) {
-      reachable.add(`${current.x},${current.y}`);
-    }
-    if (current.steps >= maxSteps) continue;
-
+    const cell = queue.shift();
+    if (cell.steps > 0) reachable.add(`${cell.x},${cell.y}`);
+    if (cell.steps >= maxSteps) continue;
     const neighbors = [
-      { x: current.x + 1, y: current.y },
-      { x: current.x - 1, y: current.y },
-      { x: current.x, y: current.y + 1 },
-      { x: current.x, y: current.y - 1 },
-      { x: current.x + 1, y: current.y + 1 },
-      { x: current.x + 1, y: current.y - 1 },
-      { x: current.x - 1, y: current.y + 1 },
-      { x: current.x - 1, y: current.y - 1 },
+      { x: cell.x + 1, y: cell.y },
+      { x: cell.x - 1, y: cell.y },
+      { x: cell.x, y: cell.y + 1 },
+      { x: cell.x, y: cell.y - 1 },
+      { x: cell.x + 1, y: cell.y + 1 },
+      { x: cell.x + 1, y: cell.y - 1 },
+      { x: cell.x - 1, y: cell.y + 1 },
+      { x: cell.x - 1, y: cell.y - 1 },
     ];
-
-    neighbors.forEach((next) => {
-      if (next.x < 0 || next.y < 0 || next.x >= cols || next.y >= rows) return;
-      const key = `${next.x},${next.y}`;
+    neighbors.forEach((neighbor) => {
+      if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= cols || neighbor.y >= rows) return;
+      const key = `${neighbor.x},${neighbor.y}`;
       if (visited.has(key)) return;
-      if (isBlocked(next.x, next.y) || isOccupied(next.x, next.y)) return;
+      if (isBlocked(neighbor.x, neighbor.y) || isOccupied(neighbor.x, neighbor.y)) return;
       visited.add(key);
-      queue.push({ ...next, steps: current.steps + 1 });
+      queue.push({ ...neighbor, steps: cell.steps + 1 });
     });
   }
-
   return reachable;
-}
+};
 
 export default function CombatGridPanel({ onBack, campaignId, playerId }) {
-  const gridRef = useRef(null);
-  const dragRef = useRef(null);
-  const lastTurnRef = useRef(null);
-
-  const [gridCols, setGridCols] = useState(24);
-  const [gridRows, setGridRows] = useState(16);
-  const [colsInput, setColsInput] = useState('24');
-  const [rowsInput, setRowsInput] = useState('16');
-  const [tokens, setTokens] = useState([]);
-  const [cells, setCells] = useState({});
-  const [tool, setTool] = useState('');
-  const [coverHpInput, setCoverHpInput] = useState('20');
-  const [status, setStatus] = useState('');
-  const [dragging, setDragging] = useState(null);
-  const [hoverCell, setHoverCell] = useState(null);
-  const [hydrated, setHydrated] = useState(false);
-  const [combatState, setCombatState] = useState({
-    active: false,
-    phase: 'setup',
-    round: 0,
-    turnOrder: [],
-    turnIndex: 0,
-    hasMoved: false,
-    hasActed: false,
-    log: [],
-  });
-  const [moveRange, setMoveRange] = useState(new Set());
-  const [effects, setEffects] = useState({ shots: [], hits: [], floats: [], moves: [] });
-
-  const [newToken, setNewToken] = useState({
-    ...DEFAULT_TOKEN,
-  });
-
-  const scope = useMemo(() => 'combat_grid_v1', []);
-  const sharedPlayerId = '__system__';
-  const [systemTime, setSystemTime] = useState(() =>
-    new Date().toLocaleTimeString('pt-BR', { hour12: false })
-  );
-  const columnLabels = useMemo(
-    () => Array.from({ length: gridCols }, (_, idx) => String.fromCharCode(65 + (idx % 26))),
-    [gridCols]
-  );
-  const rowLabels = useMemo(() => Array.from({ length: gridRows }, (_, idx) => idx + 1), [gridRows]);
+  const panelRef = useRef(null);
+  const canvasRef = useRef(null);
+  const tooltipRef = useRef(null);
+  const [systemTime, setSystemTime] = useState('00:00:00');
+  const displayPlayer = playerId || 'anon';
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
+    const updateTime = () => {
       setSystemTime(new Date().toLocaleTimeString('pt-BR', { hour12: false }));
-    }, 1000);
-    return () => window.clearInterval(timer);
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
-    if (!campaignId) return;
+    const canvasWrap = canvasRef.current;
+    const panelEl = panelRef.current;
+    const tooltipEl = tooltipRef.current;
+    if (!canvasWrap || !panelEl || !tooltipEl) return;
 
-    const unsubscribe = subscribeStoredState({
-      campaignId,
-      playerId: sharedPlayerId,
-      scope,
-      fallback: null,
-      onChange: (data) => {
-        const cols = Number(data?.gridCols) || 24;
-        const rows = Number(data?.gridRows) || 16;
-        const loadedTokens = Array.isArray(data?.tokens) ? data.tokens : [];
-        const loadedCells = data?.cells && typeof data.cells === 'object' ? data.cells : {};
-        const loadedCombat = data?.combat && typeof data.combat === 'object' ? data.combat : {};
+    let disposed = false;
+    const storageCampaignId = campaignId || 'nightcity-main';
+    const storagePlayerId = '__system__';
 
-        setGridCols(clamp(cols, MIN_COLS, MAX_COLS));
-        setGridRows(clamp(rows, MIN_ROWS, MAX_ROWS));
-        setColsInput(String(clamp(cols, MIN_COLS, MAX_COLS)));
-        setRowsInput(String(clamp(rows, MIN_ROWS, MAX_ROWS)));
-        setTokens(
-          loadedTokens.map((token) => ({
-            id: token.id ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            name: token.name ?? DEFAULT_TOKEN.name,
-            team: token.team ?? DEFAULT_TOKEN.team,
-            color: token.color ?? DEFAULT_TOKEN.color,
-            hp: Number.isFinite(Number(token.hp)) ? Number(token.hp) : DEFAULT_TOKEN.hp,
-            maxHp: Number.isFinite(Number(token.maxHp)) ? Number(token.maxHp) : DEFAULT_TOKEN.maxHp,
-            body: Number.isFinite(Number(token.body)) ? Number(token.body) : DEFAULT_TOKEN.body,
-            ref: Number.isFinite(Number(token.ref)) ? Number(token.ref) : DEFAULT_TOKEN.ref,
-            dex: Number.isFinite(Number(token.dex)) ? Number(token.dex) : DEFAULT_TOKEN.dex,
-            skill: Number.isFinite(Number(token.skill)) ? Number(token.skill) : DEFAULT_TOKEN.skill,
-            evasion: Number.isFinite(Number(token.evasion)) ? Number(token.evasion) : DEFAULT_TOKEN.evasion,
-            move: Number.isFinite(Number(token.move)) ? Number(token.move) : DEFAULT_TOKEN.move,
-            sp: Number.isFinite(Number(token.sp)) ? Number(token.sp) : DEFAULT_TOKEN.sp,
-            weaponKey: token.weaponKey ?? DEFAULT_TOKEN.weaponKey,
-            autoDodge: token.autoDodge !== undefined ? Boolean(token.autoDodge) : DEFAULT_TOKEN.autoDodge,
-            x: Number.isFinite(token.x) ? token.x : 0,
-            y: Number.isFinite(token.y) ? token.y : 0,
-          }))
-        );
-        const normalizedCells = {};
-        Object.entries(loadedCells).forEach(([key, cell]) => {
-          if (!cell || typeof cell !== 'object') return;
-          const [xRaw, yRaw] = key.split(',').map((value) => Number(value));
-          if (!Number.isFinite(xRaw) || !Number.isFinite(yRaw)) return;
-          const x = clamp(xRaw, 0, cols - 1);
-          const y = clamp(yRaw, 0, rows - 1);
-          const type = cell.type === 'cover' ? 'cover' : 'wall';
-          const hp = Number.isFinite(Number(cell.hp)) ? Number(cell.hp) : 20;
-          normalizedCells[`${x},${y}`] = type === 'cover' ? { type, hp } : { type };
-        });
-        setCells(normalizedCells);
-        setCombatState((prev) => ({
-          active: Boolean(loadedCombat.active),
-          phase: loadedCombat.phase ?? 'setup',
-          round: Number(loadedCombat.round) || 0,
-          turnOrder: Array.isArray(loadedCombat.turnOrder) ? loadedCombat.turnOrder : [],
-          turnIndex: Number(loadedCombat.turnIndex) || 0,
-          hasMoved: Boolean(loadedCombat.hasMoved),
-          hasActed: Boolean(loadedCombat.hasActed),
-          log: Array.isArray(loadedCombat.log) ? loadedCombat.log : prev.log,
-        }));
-        setHydrated(true);
-      },
+    let gridCols = DEFAULT_STATE.grid.cols;
+    let gridRows = DEFAULT_STATE.grid.rows;
+    let tokens = [];
+    let cells = {};
+    let coverHpDefault = DEFAULT_STATE.coverHpDefault;
+    let combat = { ...DEFAULT_STATE.combat };
+    let tool = '';
+    let selectedTokenId = null;
+    let moveRangeSet = new Set();
+    let status = '';
+    let statusTimer = null;
+
+    const lastSavedRef = { current: '' };
+    const applyingRemoteRef = { current: false };
+
+    const snapshotState = () => ({
+      grid: { cols: gridCols, rows: gridRows },
+      tokens,
+      cells,
+      coverHpDefault,
+      combat,
     });
 
-    return unsubscribe;
-  }, [campaignId, scope]);
-
-  useEffect(() => {
-    if (!campaignId || !hydrated) return;
-    setStoredState({
-      campaignId,
-      playerId: sharedPlayerId,
-      scope,
-      data: {
-        gridCols,
-        gridRows,
-        tokens,
-        cells,
-        combat: {
-          active: combatState.active,
-          phase: combatState.phase,
-          round: combatState.round,
-          turnOrder: combatState.turnOrder,
-          turnIndex: combatState.turnIndex,
-          hasMoved: combatState.hasMoved,
-          hasActed: combatState.hasActed,
-          log: combatState.log,
-        },
-        updatedBy: playerId || 'anon',
-      },
-    });
-  }, [campaignId, cells, combatState, gridCols, gridRows, hydrated, playerId, scope, tokens]);
-
-  const currentTurnTokenId = combatState.turnOrder[combatState.turnIndex];
-  const currentToken = tokens.find((token) => token.id === currentTurnTokenId) || null;
-
-  useEffect(() => {
-    const handleMove = (event) => {
-      if (!dragRef.current || !gridRef.current) return;
-      const gridRect = gridRef.current.getBoundingClientRect();
-      const relX = event.clientX - gridRect.left;
-      const relY = event.clientY - gridRect.top;
-      const cellX = clamp(Math.floor(relX / CELL_SIZE), 0, gridCols - 1);
-      const cellY = clamp(Math.floor(relY / CELL_SIZE), 0, gridRows - 1);
-      setHoverCell({ x: cellX, y: cellY, blocked: Boolean(cells[`${cellX},${cellY}`]) });
-      setDragging((prev) => (prev ? { ...prev, x: cellX, y: cellY } : prev));
-      if (dragRef.current) {
-        dragRef.current = { ...dragRef.current, x: cellX, y: cellY };
-      }
+    const persistState = () => {
+      if (applyingRemoteRef.current) return;
+      const snapshot = snapshotState();
+      const serialized = JSON.stringify(snapshot);
+      if (serialized === lastSavedRef.current) return;
+      lastSavedRef.current = serialized;
+      setStoredState({
+        campaignId: storageCampaignId,
+        playerId: storagePlayerId,
+        scope: GRID_SCOPE,
+        data: snapshot,
+      });
     };
 
-    const handleUp = () => {
-      if (!dragRef.current) return;
-      const active = dragRef.current;
-      if (cells[`${active.x},${active.y}`]) {
-        setTokens((prev) =>
-          prev.map((token) =>
-            token.id === active.id ? { ...token, x: active.startX, y: active.startY } : token
-          )
-        );
-      } else {
-        setTokens((prev) =>
-          prev.map((token) => (token.id === active.id ? { ...token, x: active.x, y: active.y } : token))
-        );
-      }
-      setDragging(null);
-      setHoverCell(null);
-      dragRef.current = null;
-    };
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x07070c);
+    scene.fog = new THREE.FogExp2(0x07070c, 0.02);
 
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-  }, [cells, gridCols, gridRows]);
+    const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
+    camera.position.set(gridCols, 18, gridRows + 12);
 
-  useEffect(() => {
-    if (!combatState.active) return;
-    if (!currentToken) return;
-    if ((currentToken.hp ?? 0) > 0) return;
-    advanceTurn();
-  }, [combatState.active, currentToken, tokens]);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.domElement.style.width = '100%';
+    renderer.domElement.style.height = '100%';
+    canvasWrap.appendChild(renderer.domElement);
 
-  useEffect(() => {
-    if (combatState.phase !== 'move' && moveRange.size) {
-      setMoveRange(new Set());
-    }
-  }, [combatState.phase, moveRange]);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.target.set((gridCols * CELL_SIZE) / 2, 0, (gridRows * CELL_SIZE) / 2);
+    controls.minDistance = 6;
+    controls.maxDistance = 120;
+    controls.maxPolarAngle = Math.PI / 2 - 0.05;
 
-  const isCellBlocked = (x, y) => Boolean(cells[`${x},${y}`]);
-  const isCellOccupied = (x, y, ignoreId) =>
-    tokens.some((token) => token.id !== ignoreId && token.x === x && token.y === y);
-  const isTokenInCover = (token) => {
-    if (!token) return false;
-    for (let dx = -1; dx <= 1; dx += 1) {
-      for (let dy = -1; dy <= 1; dy += 1) {
-        if (!dx && !dy) continue;
-        const x = token.x + dx;
-        const y = token.y + dy;
-        const cell = cells[`${x},${y}`];
-        if (cell?.type === 'cover' && (cell.hp ?? 1) > 0) {
-          return true;
+    const ambientLight = new THREE.AmbientLight(0x334455, 0.6);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xaaccff, 0.8);
+    dirLight.position.set(30, 40, 20);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.camera.left = -60;
+    dirLight.shadow.camera.right = 60;
+    dirLight.shadow.camera.top = 60;
+    dirLight.shadow.camera.bottom = -60;
+    scene.add(dirLight);
+
+    const pointLight = new THREE.PointLight(0x78e2ff, 0.45, 80);
+    pointLight.position.set((gridCols * CELL_SIZE) / 2, 15, (gridRows * CELL_SIZE) / 2);
+    scene.add(pointLight);
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    const gridGroup = new THREE.Group();
+    scene.add(gridGroup);
+    const cellGroup = new THREE.Group();
+    scene.add(cellGroup);
+    const tokenGroup = new THREE.Group();
+    scene.add(tokenGroup);
+    const moveRangeGroup = new THREE.Group();
+    scene.add(moveRangeGroup);
+    const effectGroup = new THREE.Group();
+    scene.add(effectGroup);
+    const highlightGroup = new THREE.Group();
+    scene.add(highlightGroup);
+
+    const clearGroup = (group) => {
+      while (group.children.length) {
+        const child = group.children[0];
+        group.remove(child);
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+          if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
+          else child.material.dispose();
         }
       }
-    }
-    return false;
-  };
+    };
+
+    const buildGrid = () => {
+      clearGroup(gridGroup);
+
+      const groundGeo = new THREE.PlaneGeometry(gridCols * CELL_SIZE, gridRows * CELL_SIZE);
+      const groundMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0a12,
+        roughness: 0.9,
+        metalness: 0.1,
+      });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.set((gridCols * CELL_SIZE) / 2, -0.01, (gridRows * CELL_SIZE) / 2);
+      ground.receiveShadow = true;
+      ground.userData = { type: 'ground' };
+      gridGroup.add(ground);
+
+      const gridLineMat = new THREE.LineBasicMaterial({ color: 0x78e2ff, opacity: 0.18, transparent: true });
+      const points = [];
+      for (let x = 0; x <= gridCols; x += 1) {
+        points.push(new THREE.Vector3(x * CELL_SIZE, 0, 0));
+        points.push(new THREE.Vector3(x * CELL_SIZE, 0, gridRows * CELL_SIZE));
+      }
+      for (let y = 0; y <= gridRows; y += 1) {
+        points.push(new THREE.Vector3(0, 0, y * CELL_SIZE));
+        points.push(new THREE.Vector3(gridCols * CELL_SIZE, 0, y * CELL_SIZE));
+      }
+      const gridGeo = new THREE.BufferGeometry().setFromPoints(points);
+      const gridLines = new THREE.LineSegments(gridGeo, gridLineMat);
+      gridGroup.add(gridLines);
+
+      controls.target.set((gridCols * CELL_SIZE) / 2, 0, (gridRows * CELL_SIZE) / 2);
+      pointLight.position.set((gridCols * CELL_SIZE) / 2, 15, (gridRows * CELL_SIZE) / 2);
+    };
+
+    const rebuildCells = () => {
+      clearGroup(cellGroup);
+      Object.entries(cells).forEach(([key, cell]) => {
+        const [x, y] = key.split(',').map(Number);
+        if (cell.type === 'wall') {
+          const geo = new THREE.BoxGeometry(CELL_SIZE * 0.95, CELL_SIZE * 1.5, CELL_SIZE * 0.95);
+          const mat = new THREE.MeshStandardMaterial({
+            color: 0x222230,
+            roughness: 0.7,
+            metalness: 0.4,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(x * CELL_SIZE + CELL_SIZE / 2, CELL_SIZE * 0.75, y * CELL_SIZE + CELL_SIZE / 2);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.userData = { type: 'wall', cellKey: key, gx: x, gy: y };
+
+          const edges = new THREE.EdgesGeometry(geo);
+          const lineMat = new THREE.LineBasicMaterial({ color: 0x78e2ff, opacity: 0.35, transparent: true });
+          mesh.add(new THREE.LineSegments(edges, lineMat));
+
+          cellGroup.add(mesh);
+        } else if (cell.type === 'cover') {
+          const hp = cell.hp || 0;
+          const height = CELL_SIZE * 0.6;
+          const geo = new THREE.BoxGeometry(CELL_SIZE * 0.9, height, CELL_SIZE * 0.9);
+          const hue = hp > 15 ? 0x4f7f66 : hp > 5 ? 0x846c32 : 0x883b25;
+          const mat = new THREE.MeshStandardMaterial({
+            color: hue,
+            roughness: 0.8,
+            metalness: 0.1,
+            transparent: true,
+            opacity: 0.85,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(x * CELL_SIZE + CELL_SIZE / 2, height / 2, y * CELL_SIZE + CELL_SIZE / 2);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.userData = { type: 'cover', cellKey: key, gx: x, gy: y, hp };
+
+          const edges = new THREE.EdgesGeometry(geo);
+          const lineMat = new THREE.LineBasicMaterial({ color: 0xffaa5c, opacity: 0.4, transparent: true });
+          mesh.add(new THREE.LineSegments(edges, lineMat));
+
+          cellGroup.add(mesh);
+        }
+      });
+    };
+
+    const rebuildTokens = () => {
+      clearGroup(tokenGroup);
+      tokens.forEach((token) => {
+        const group = new THREE.Group();
+        group.userData = { type: 'token', tokenId: token.id };
+
+        const color = new THREE.Color(token.color || '#d43a3a');
+        const isDead = (token.hp || 0) <= 0;
+
+        const bodyH = isDead ? 0.3 : 1.4;
+        const bodyGeo = new THREE.CylinderGeometry(CELL_SIZE * 0.35, CELL_SIZE * 0.38, bodyH, 12);
+        const bodyMat = new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.4,
+          metalness: 0.6,
+          emissive: color,
+          emissiveIntensity: isDead ? 0.05 : 0.15,
+          transparent: isDead,
+          opacity: isDead ? 0.4 : 1,
+        });
+        const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+        bodyMesh.position.y = bodyH / 2;
+        bodyMesh.castShadow = true;
+        group.add(bodyMesh);
+
+        if (!isDead) {
+          const headGeo = new THREE.SphereGeometry(CELL_SIZE * 0.2, 10, 8);
+          const headMat = new THREE.MeshStandardMaterial({
+            color,
+            roughness: 0.3,
+            metalness: 0.5,
+            emissive: color,
+            emissiveIntensity: 0.1,
+          });
+          const headMesh = new THREE.Mesh(headGeo, headMat);
+          headMesh.position.y = bodyH + CELL_SIZE * 0.15;
+          headMesh.castShadow = true;
+          group.add(headMesh);
+
+          const ringGeo = new THREE.RingGeometry(CELL_SIZE * 0.36, CELL_SIZE * 0.42, 16);
+          const ringMat = new THREE.MeshBasicMaterial({
+            color,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.6,
+          });
+          const ring = new THREE.Mesh(ringGeo, ringMat);
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.y = 0.05;
+          group.add(ring);
+
+          const hpRatio = Math.max(0, (token.hp || 0) / (token.maxHp || 1));
+          const barWidth = CELL_SIZE * 0.8;
+          const barGeo = new THREE.PlaneGeometry(barWidth * hpRatio, 0.15);
+          const barColor = hpRatio > 0.5 ? 0x00ff96 : hpRatio > 0.25 ? 0xffaa00 : 0xff4141;
+          const barMat = new THREE.MeshBasicMaterial({ color: barColor, side: THREE.DoubleSide });
+          const barMesh = new THREE.Mesh(barGeo, barMat);
+          barMesh.position.set((barWidth * hpRatio - barWidth) / 2, bodyH + CELL_SIZE * 0.45, 0);
+          group.add(barMesh);
+
+          const barBgGeo = new THREE.PlaneGeometry(barWidth, 0.15);
+          const barBgMat = new THREE.MeshBasicMaterial({
+            color: 0x222222,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.5,
+          });
+          const barBg = new THREE.Mesh(barBgGeo, barBgMat);
+          barBg.position.set(0, bodyH + CELL_SIZE * 0.45, -0.01);
+          group.add(barBg);
+        }
+
+        const isActive = combat.active && combat.turnOrder[combat.turnIndex] === token.id;
+        if (isActive && !isDead) {
+          const glowGeo = new THREE.RingGeometry(CELL_SIZE * 0.42, CELL_SIZE * 0.52, 20);
+          const glowMat = new THREE.MeshBasicMaterial({
+            color: 0x00ff96,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.5,
+          });
+          const glow = new THREE.Mesh(glowGeo, glowMat);
+          glow.rotation.x = -Math.PI / 2;
+          glow.position.y = 0.06;
+          glow.userData.pulse = true;
+          group.add(glow);
+        }
+
+        group.position.set(token.x * CELL_SIZE + CELL_SIZE / 2, 0, token.y * CELL_SIZE + CELL_SIZE / 2);
+        if (isDead) group.rotation.z = Math.PI / 3;
+
+        tokenGroup.add(group);
+      });
+    };
+
+    const rebuildMoveRange = () => {
+      clearGroup(moveRangeGroup);
+      if (combat.active && combat.phase === 'move') {
+        const current = getCurrentToken();
+        if (current) {
+          moveRangeSet = buildMoveRange(
+            current,
+            Number(current.move) || 0,
+            (x, y) => isCellBlocked(x, y),
+            (x, y) => isCellOccupied(x, y, current.id),
+            gridCols,
+            gridRows
+          );
+        }
+      } else {
+        moveRangeSet = new Set();
+      }
+      moveRangeSet.forEach((key) => {
+        const [x, y] = key.split(',').map(Number);
+        const geo = new THREE.PlaneGeometry(CELL_SIZE * 0.9, CELL_SIZE * 0.9);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0x4488ff,
+          transparent: true,
+          opacity: 0.25,
+          side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(x * CELL_SIZE + CELL_SIZE / 2, 0.03, y * CELL_SIZE + CELL_SIZE / 2);
+        mesh.userData = { type: 'moveCell', gx: x, gy: y };
+        moveRangeGroup.add(mesh);
+      });
+    };
+
+    const addShotLine = (from, to, isMelee) => {
+      const start = new THREE.Vector3(from.x * CELL_SIZE + CELL_SIZE / 2, 1, from.y * CELL_SIZE + CELL_SIZE / 2);
+      const end = new THREE.Vector3(to.x * CELL_SIZE + CELL_SIZE / 2, 1, to.y * CELL_SIZE + CELL_SIZE / 2);
+      const points = [start, end];
+      const geo = new THREE.BufferGeometry().setFromPoints(points);
+      const mat = new THREE.LineBasicMaterial({
+        color: isMelee ? 0xffffff : 0xff4400,
+        opacity: 0.9,
+        transparent: true,
+      });
+      const line = new THREE.Line(geo, mat);
+      line.userData.createdAt = Date.now();
+      line.userData.ttl = isMelee ? 200 : 300;
+      effectGroup.add(line);
+    };
+
+    const addHitMarker = (pos) => {
+      const geo = new THREE.SphereGeometry(0.5, 8, 8);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xff4400,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(pos.x * CELL_SIZE + CELL_SIZE / 2, 1.2, pos.y * CELL_SIZE + CELL_SIZE / 2);
+      mesh.userData.createdAt = Date.now();
+      mesh.userData.ttl = 500;
+      mesh.userData.isHit = true;
+      effectGroup.add(mesh);
+    };
+
+    const addDamageFloat = (pos, isCrit) => {
+      const geo = new THREE.RingGeometry(0.2, 0.6, 16);
+      const mat = new THREE.MeshBasicMaterial({
+        color: isCrit ? 0xff0000 : 0xff6600,
+        transparent: true,
+        opacity: 0.8,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(pos.x * CELL_SIZE + CELL_SIZE / 2, 0.1, pos.y * CELL_SIZE + CELL_SIZE / 2);
+      mesh.userData.createdAt = Date.now();
+      mesh.userData.ttl = 600;
+      mesh.userData.isRing = true;
+      effectGroup.add(mesh);
+    };
+
+    const addMoveMarker = (pos) => {
+      const geo = new THREE.RingGeometry(0.3, 0.5, 12);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x44aaff,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(pos.x * CELL_SIZE + CELL_SIZE / 2, 0.08, pos.y * CELL_SIZE + CELL_SIZE / 2);
+      mesh.userData.createdAt = Date.now();
+      mesh.userData.ttl = 500;
+      effectGroup.add(mesh);
+    };
+
+    const updateEffects = () => {
+      const now = Date.now();
+      for (let i = effectGroup.children.length - 1; i >= 0; i -= 1) {
+        const child = effectGroup.children[i];
+        const age = now - child.userData.createdAt;
+        if (age > child.userData.ttl) {
+          effectGroup.remove(child);
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) child.material.dispose();
+        } else {
+          const progress = age / child.userData.ttl;
+          if (child.material) child.material.opacity = (1 - progress) * 0.9;
+          if (child.userData.isHit) child.scale.setScalar(1 + progress * 2);
+          if (child.userData.isRing) child.scale.setScalar(1 + progress * 4);
+        }
+      }
+    };
+
+    let hoverHighlight = null;
+    const updateHoverHighlight = (gx, gy, show) => {
+      if (!hoverHighlight) {
+        const geo = new THREE.PlaneGeometry(CELL_SIZE, CELL_SIZE);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0x00ff96,
+          transparent: true,
+          opacity: 0.15,
+          side: THREE.DoubleSide,
+        });
+        hoverHighlight = new THREE.Mesh(geo, mat);
+        hoverHighlight.rotation.x = -Math.PI / 2;
+        hoverHighlight.position.y = 0.02;
+        highlightGroup.add(hoverHighlight);
+      }
+      hoverHighlight.visible = show;
+      if (show) {
+        hoverHighlight.position.x = gx * CELL_SIZE + CELL_SIZE / 2;
+        hoverHighlight.position.z = gy * CELL_SIZE + CELL_SIZE / 2;
+
+        if (tool === 'wall') hoverHighlight.material.color.set(0x333388);
+        else if (tool === 'cover') hoverHighlight.material.color.set(0xffaa00);
+        else if (tool === 'erase') hoverHighlight.material.color.set(0xff4444);
+        else if (combat.phase === 'move' && moveRangeSet.has(`${gx},${gy}`)) hoverHighlight.material.color.set(0x4488ff);
+        else if (combat.phase === 'attack') hoverHighlight.material.color.set(0xff6600);
+        else hoverHighlight.material.color.set(0x00ff96);
+      }
+    };
+
+    let targetableHighlights = [];
+    const rebuildTargetableHighlights = () => {
+      targetableHighlights.forEach((h) => {
+        highlightGroup.remove(h);
+        h.geometry.dispose();
+        h.material.dispose();
+      });
+      targetableHighlights = [];
+
+      if (!combat.active || combat.phase !== 'attack') return;
+      const attacker = getCurrentToken();
+      if (!attacker) return;
+
+      tokens.forEach((token) => {
+        if (token.id === attacker.id) return;
+        if (token.team === attacker.team) return;
+        if ((token.hp || 0) <= 0) return;
+
+        const weapon = WEAPONS[attacker.weaponKey] || WEAPONS.pistola;
+        const distance = getDistanceMeters(attacker, token);
+        const meleeRange = CELL_METERS * Math.SQRT2 + 0.1;
+        const inRange = weapon.melee
+          ? distance <= meleeRange
+          : weapon.rangeType
+            ? RANGE_DV[weapon.rangeType]?.[getRangeBand(distance)] != null
+            : false;
+        const inSight = weapon.melee
+          ? true
+          : hasLineOfSight(attacker, token, (x, y) => cells[`${x},${y}`]?.type === 'wall');
+
+        if (inRange && inSight) {
+          const geo = new THREE.RingGeometry(CELL_SIZE * 0.45, CELL_SIZE * 0.55, 16);
+          const mat = new THREE.MeshBasicMaterial({
+            color: 0xff4400,
+            transparent: true,
+            opacity: 0.5,
+            side: THREE.DoubleSide,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.position.set(token.x * CELL_SIZE + CELL_SIZE / 2, 0.07, token.y * CELL_SIZE + CELL_SIZE / 2);
+          mesh.userData.pulse = true;
+          highlightGroup.add(mesh);
+          targetableHighlights.push(mesh);
+        }
+      });
+    };
+
+    const getCurrentToken = () => {
+      if (!combat.active || !combat.turnOrder.length) return null;
+      return tokens.find((token) => token.id === combat.turnOrder[combat.turnIndex]) || null;
+    };
+
+    const isCellBlocked = (x, y) => Boolean(cells[`${x},${y}`]);
+    const isCellOccupied = (x, y, ignoreId) => tokens.some((token) => token.id !== ignoreId && token.x === x && token.y === y);
+
+    const isTokenInCover = (token) => {
+      if (!token) return false;
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          if (!dx && !dy) continue;
+          const cell = cells[`${token.x + dx},${token.y + dy}`];
+          if (cell?.type === 'cover' && (cell.hp || 1) > 0) return true;
+        }
+      }
+      return false;
+    };
+
+    const appendLog = (message, tone = 'info') => {
+      combat.log.push({ id: uid(), message, tone });
+      if (combat.log.length > 120) combat.log = combat.log.slice(-120);
+      renderPanel();
+      persistState();
+      setTimeout(() => {
+        const logBox = panelEl.querySelector('.log-box');
+        if (logBox) logBox.scrollTop = logBox.scrollHeight;
+      }, 50);
+    };
+
+    const findOpenCell = () => {
+      const occupied = new Set(tokens.map((token) => `${token.x},${token.y}`));
+      for (let y = 0; y < gridRows; y += 1) {
+        for (let x = 0; x < gridCols; x += 1) {
+          const key = `${x},${y}`;
+          if (!occupied.has(key) && !cells[key]) return { x, y };
+        }
+      }
+      return null;
+    };
+
+    const checkCombatEnd = () => {
+      const alive = tokens.filter((token) => (token.hp || 0) > 0);
+      const teams = new Set(alive.map((token) => token.team));
+      if (teams.size <= 1 && combat.active) {
+        combat.active = false;
+        combat.phase = 'setup';
+        const winner = alive[0]?.team ? `Time ${alive[0].team}` : 'Nenhum';
+        appendLog(`Combate encerrado. Vencedor: ${winner}.`, 'crit');
+      }
+    };
+
+    const startCombat = () => {
+      if (tokens.length === 0) {
+        setStatusMsg('Adicione tokens antes.');
+        return;
+      }
+      const alive = tokens.filter((token) => (token.hp || 0) > 0);
+      if (!alive.length) {
+        setStatusMsg('Nenhum token vivo.');
+        return;
+      }
+
+      const withInit = alive.map((token) => ({
+        id: token.id,
+        roll: Number(token.ref || 0) + rollDie(10) + Math.random() * 0.01,
+      }));
+      const sorted = withInit.sort((a, b) => b.roll - a.roll).map((entry) => entry.id);
+
+      combat = {
+        active: true,
+        phase: 'action',
+        round: 1,
+        turnOrder: sorted,
+        turnIndex: 0,
+        hasMoved: false,
+        hasActed: false,
+        log: [{ id: uid(), message: 'Combate iniciado!', tone: 'crit' }],
+      };
+      moveRangeSet = new Set();
+
+      const first = tokens.find((token) => token.id === sorted[0]);
+      if (first) appendLog(`Turno de ${first.name}.`);
+
+      fullRefresh();
+    };
+
+    const advanceTurn = () => {
+      if (!combat.turnOrder.length) return;
+      let next = combat.turnIndex + 1;
+      let nextRound = combat.round;
+      const aliveIds = new Set(tokens.filter((token) => (token.hp || 0) > 0).map((token) => token.id));
+      let safety = 0;
+      while (safety < combat.turnOrder.length) {
+        if (next >= combat.turnOrder.length) {
+          next = 0;
+          nextRound += 1;
+        }
+        if (aliveIds.has(combat.turnOrder[next])) break;
+        next += 1;
+        safety += 1;
+      }
+      combat.turnIndex = next;
+      combat.round = nextRound;
+      combat.phase = 'action';
+      combat.hasMoved = false;
+      combat.hasActed = false;
+      moveRangeSet = new Set();
+
+      const token = getCurrentToken();
+      if (token) appendLog(`Turno de ${token.name}.`);
+
+      fullRefresh();
+    };
+
+    const endTurn = () => {
+      const token = getCurrentToken();
+      appendLog(`Fim do turno: ${token?.name || '---'}`);
+      advanceTurn();
+    };
+
+    const resetCombat = () => {
+      combat = { ...DEFAULT_STATE.combat };
+      moveRangeSet = new Set();
+      appendLog('Combate resetado.', 'warn');
+      fullRefresh();
+    };
+
+    const enterMove = () => {
+      if (!combat.active || combat.hasMoved) return;
+      const token = getCurrentToken();
+      if (!token) return;
+
+      moveRangeSet = buildMoveRange(
+        token,
+        Number(token.move) || 0,
+        (x, y) => isCellBlocked(x, y),
+        (x, y) => isCellOccupied(x, y, token.id),
+        gridCols,
+        gridRows
+      );
+      combat.phase = 'move';
+      fullRefresh();
+    };
+
+    const enterAttack = () => {
+      if (!combat.active || combat.hasActed) return;
+      const token = getCurrentToken();
+      if (!token) return;
+      combat.phase = 'attack';
+      fullRefresh();
+    };
+
+    const handleMoveToCell = (gx, gy) => {
+      const token = getCurrentToken();
+      if (!token) return;
+      const key = `${gx},${gy}`;
+      if (!moveRangeSet.has(key)) return;
+
+      token.x = gx;
+      token.y = gy;
+      combat.hasMoved = true;
+      combat.phase = 'action';
+      moveRangeSet = new Set();
+
+      addMoveMarker({ x: gx, y: gy });
+      fullRefresh();
+    };
+
+    const handleAttackToken = (targetId) => {
+      const attacker = getCurrentToken();
+      if (!attacker) return;
+      const target = tokens.find((token) => token.id === targetId);
+      if (!target) return;
+      if (target.id === attacker.id) return;
+      if (target.team === attacker.team) return;
+      if ((target.hp || 0) <= 0) {
+        appendLog('Alvo fora de combate.', 'warn');
+        return;
+      }
+
+      const weapon = WEAPONS[attacker.weaponKey] || WEAPONS.pistola;
+      const distance = getDistanceMeters(attacker, target);
+
+      if (weapon.melee && distance > CELL_METERS * Math.SQRT2 + 0.1) {
+        appendLog('Fora do alcance corpo a corpo.', 'warn');
+        return;
+      }
+      if (!weapon.melee) {
+        if (!hasLineOfSight(attacker, target, (x, y) => cells[`${x},${y}`]?.type === 'wall')) {
+          appendLog('Sem linha de visao.', 'warn');
+          return;
+        }
+      }
+
+      const roll = rollDie(10);
+      const attackBase = weapon.melee
+        ? Number(attacker.dex || 0) + Number(attacker.skill || 0)
+        : Number(attacker.ref || 0) + Number(attacker.skill || 0);
+      const attackTotal = attackBase + roll;
+      let hit = false;
+      let defenseText = '';
+
+      if (weapon.melee) {
+        const dr = rollDie(10);
+        const dt = Number(target.dex || 0) + Number(target.evasion || 0) + dr;
+        defenseText = `DEX+Evasao ${dt}`;
+        hit = attackTotal > dt;
+      } else if (target.autoDodge && Number(target.ref || 0) >= 8) {
+        const dr = rollDie(10);
+        const dt = Number(target.dex || 0) + Number(target.evasion || 0) + dr;
+        defenseText = `Esquiva ${dt}`;
+        hit = attackTotal > dt;
+      } else {
+        const band = getRangeBand(distance);
+        let dv = weapon.rangeType ? RANGE_DV[weapon.rangeType]?.[band] : null;
+        if (dv == null) {
+          appendLog('Fora do alcance.', 'warn');
+          return;
+        }
+        if (isTokenInCover(target)) dv += 2;
+        defenseText = isTokenInCover(target) ? `DV ${dv} (cobertura)` : `DV ${dv}`;
+        hit = attackTotal >= dv;
+      }
+
+      appendLog(
+        `${attacker.name} ataca ${target.name}: ${attackTotal} vs ${defenseText} (${hit ? 'ACERTOU' : 'ERROU'})`,
+        hit ? 'heal' : 'dmg'
+      );
+
+      addShotLine(attacker, target, weapon.melee);
+
+      if (!hit) {
+        combat.hasActed = true;
+        combat.phase = 'action';
+        fullRefresh();
+        return;
+      }
+
+      const diceCount = weapon.brawl ? getBrawlDice(Number(attacker.body || 6)) : weapon.dice;
+      const rolls = rollD6(diceCount);
+      const total = rolls.reduce((sum, value) => sum + value, 0);
+      const crit = rolls.filter((value) => value === 6).length >= 2;
+      const effectiveSp = weapon.halfSp ? Math.ceil(Number(target.sp || 0) / 2) : Number(target.sp || 0);
+      let damage = Math.max(0, total - effectiveSp);
+      if (crit) damage += 5;
+
+      target.hp = (Number(target.hp || 0) - damage);
+      if (damage > 0) target.sp = Math.max(0, Number(target.sp || 0) - 1);
+
+      addHitMarker(target);
+      addDamageFloat(target, crit);
+
+      appendLog(
+        `Dano: ${rolls.join(',')} (${total}) SP ${effectiveSp} => ${damage}${crit ? ' CRITICO!' : ''}`,
+        crit ? 'crit' : 'info'
+      );
+
+      if (target.hp <= 0) {
+        appendLog(`${target.name} caiu!`, 'crit');
+      }
+
+      combat.hasActed = true;
+      combat.phase = 'action';
+      checkCombatEnd();
+      fullRefresh();
+    };
+
+    const setStatusMsg = (msg) => {
+      status = msg;
+      renderPanel();
+      if (statusTimer) window.clearTimeout(statusTimer);
+      statusTimer = window.setTimeout(() => {
+        status = '';
+        renderPanel();
+      }, 3000);
+    };
+
+    const getGridCoordsFromIntersect = (intersect) => {
+      const point = intersect.point;
+      const gx = Math.floor(point.x / CELL_SIZE);
+      const gy = Math.floor(point.z / CELL_SIZE);
+      if (gx < 0 || gy < 0 || gx >= gridCols || gy >= gridRows) return null;
+      return { x: gx, y: gy };
+    };
+
+    const onCanvasClick = (event) => {
+      if (disposed) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+
+      const tokenIntersects = raycaster.intersectObjects(tokenGroup.children, true);
+      if (tokenIntersects.length > 0) {
+        let obj = tokenIntersects[0].object;
+        while (obj.parent && obj.parent !== tokenGroup) obj = obj.parent;
+        const tokenId = obj.userData?.tokenId;
+
+        if (combat.active && combat.phase === 'attack' && tokenId) {
+          handleAttackToken(tokenId);
+          return;
+        }
+
+        if (tokenId) {
+          selectedTokenId = selectedTokenId === tokenId ? null : tokenId;
+          renderPanel();
+          return;
+        }
+      }
+
+      if (combat.active && combat.phase === 'move') {
+        const moveIntersects = raycaster.intersectObjects(moveRangeGroup.children, true);
+        if (moveIntersects.length > 0) {
+          const obj = moveIntersects[0].object;
+          if (obj.userData?.type === 'moveCell') {
+            handleMoveToCell(obj.userData.gx, obj.userData.gy);
+            return;
+          }
+        }
+      }
+
+      const groundIntersects = raycaster.intersectObjects(gridGroup.children.concat(cellGroup.children), true);
+      if (groundIntersects.length > 0) {
+        const coords = getGridCoordsFromIntersect(groundIntersects[0]);
+        if (!coords) return;
+
+        if (combat.active && combat.phase !== 'setup') return;
+        if (!tool) return;
+
+        const key = `${coords.x},${coords.y}`;
+        if (tokens.some((token) => token.x === coords.x && token.y === coords.y)) {
+          setStatusMsg('Celula ocupada por token.');
+          return;
+        }
+
+        if (tool === 'erase') {
+          delete cells[key];
+        } else if (tool === 'wall') {
+          if (cells[key]?.type === 'wall') delete cells[key];
+          else cells[key] = { type: 'wall' };
+        } else if (tool === 'cover') {
+          if (cells[key]?.type === 'cover') delete cells[key];
+          else cells[key] = { type: 'cover', hp: coverHpDefault };
+        }
+
+        rebuildCells();
+        renderPanel();
+        persistState();
+      }
+    };
+
+    const onCanvasMouseMove = (event) => {
+      if (disposed) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(
+        gridGroup.children.concat(cellGroup.children).concat(moveRangeGroup.children),
+        true
+      );
+
+      if (intersects.length > 0) {
+        const coords = getGridCoordsFromIntersect(intersects[0]);
+        if (coords) updateHoverHighlight(coords.x, coords.y, true);
+        else updateHoverHighlight(0, 0, false);
+      } else {
+        updateHoverHighlight(0, 0, false);
+      }
+
+      const tokenIntersects = raycaster.intersectObjects(tokenGroup.children, true);
+      if (tokenIntersects.length > 0) {
+        let obj = tokenIntersects[0].object;
+        while (obj.parent && obj.parent !== tokenGroup) obj = obj.parent;
+        const tokenId = obj.userData?.tokenId;
+        const token = tokens.find((entry) => entry.id === tokenId);
+        if (token) {
+          tooltipEl.style.display = 'block';
+          tooltipEl.style.left = `${event.clientX + 12}px`;
+          tooltipEl.style.top = `${event.clientY - 10}px`;
+          const weapon = WEAPONS[token.weaponKey] || WEAPONS.pistola;
+          tooltipEl.innerHTML = `
+            <b style="color:${token.color}">${token.name}</b> (Time ${token.team})<br>
+            HP: ${token.hp}/${token.maxHp} | SP: ${token.sp}<br>
+            REF:${token.ref} DEX:${token.dex} BODY:${token.body}<br>
+            Arma: ${weapon.name} | MOVE: ${token.move}<br>
+            Pos: ${token.x},${token.y}
+          `;
+          return;
+        }
+      }
+      tooltipEl.style.display = 'none';
+    };
+
+    renderer.domElement.addEventListener('click', onCanvasClick);
+    renderer.domElement.addEventListener('mousemove', onCanvasMouseMove);
+
+    const renderPanel = () => {
+      const currentToken = getCurrentToken();
+
+      let html = '';
+
+      html += `<div class="card">
+        <div class="card-title">COMBATE</div>
+        <div class="card-line">
+          ${combat.active ? `<b>Rodada ${combat.round}</b> | ` : '<b>Combate desligado</b> | '}
+          ${currentToken ? `Turno: <span style="color:${currentToken.color}">${currentToken.name}</span>` : ''}
+        </div>
+        ${combat.active && combat.phase !== 'setup'
+          ? `<span class="phase-tag phase-${combat.phase}">${combat.phase.toUpperCase()}</span>`
+          : ''}
+        <div class="card-actions" style="margin-top:6px">
+          <button class="btn" onclick="startCombat()" ${combat.active ? 'disabled' : ''}>INICIAR</button>
+          <button class="btn danger" onclick="resetCombat()">RESETAR</button>
+          <button class="btn ${combat.phase === 'move' ? 'active' : ''}" onclick="enterMove()" ${
+            !combat.active || combat.hasMoved || !currentToken ? 'disabled' : ''
+          }>MOVER</button>
+          <button class="btn attack ${combat.phase === 'attack' ? 'active' : ''}" onclick="enterAttack()" ${
+            !combat.active || combat.hasActed || !currentToken ? 'disabled' : ''
+          }>ATACAR</button>
+          <button class="btn" onclick="endTurn()" ${!combat.active || !currentToken ? 'disabled' : ''}>PASSAR</button>
+        </div>
+      </div>`;
+
+      html += `<div class="card">
+        <div class="card-title">FERRAMENTAS</div>
+        <div class="card-actions">
+          <button class="btn ${tool === 'wall' ? 'active' : ''}" onclick="setTool('wall')">PAREDE</button>
+          <button class="btn ${tool === 'cover' ? 'active' : ''}" onclick="setTool('cover')">COBERTURA</button>
+          <button class="btn danger ${tool === 'erase' ? 'active' : ''}" onclick="setTool('erase')">APAGAR</button>
+          <button class="btn danger" onclick="clearMap()">LIMPAR MAPA</button>
+        </div>
+        <div class="row" style="margin-top:6px;align-items:center">
+          <label>HP Cobertura:</label>
+          <input class="input input-sm" type="number" value="${coverHpDefault}" onchange="updateCoverHp(this.value)">
+        </div>
+        <div class="helper">Ativa: ${tool ? tool.toUpperCase() : 'NENHUMA'}</div>
+      </div>`;
+
+      html += `<div class="card">
+        <div class="card-title">GRID</div>
+        <div class="row" style="align-items:center">
+          <input class="input input-sm" id="gridColsInput" type="number" value="${gridCols}" min="${MIN_COLS}" max="${MAX_COLS}">
+          <span>x</span>
+          <input class="input input-sm" id="gridRowsInput" type="number" value="${gridRows}" min="${MIN_ROWS}" max="${MAX_ROWS}">
+          <button class="btn" onclick="applyGridSize()">APLICAR</button>
+        </div>
+        <div class="helper">Celulas: ${gridCols}x${gridRows} | 1 celula = ${CELL_METERS}m</div>
+        <button class="btn" style="margin-top:6px" onclick="centerCamera()">CENTRALIZAR CAMERA</button>
+      </div>`;
+
+      html += `<details class="card">
+        <summary>ADICIONAR TOKEN</summary>
+        <div style="margin-top:6px">
+          <div class="row">
+            <input class="input" id="nt_name" placeholder="Nome" value="Token">
+            <select class="input" id="nt_team">
+              <option value="1">Time 1</option>
+              <option value="2">Time 2</option>
+              <option value="3">Time 3</option>
+            </select>
+            <input class="input input-sm" id="nt_color" type="color" value="#d43a3a">
+          </div>
+          <div class="row">
+            <input class="input input-sm" id="nt_hp" type="number" value="30" placeholder="HP">
+            <input class="input input-sm" id="nt_maxHp" type="number" value="30" placeholder="MaxHP">
+            <input class="input input-sm" id="nt_body" type="number" value="6" placeholder="BODY">
+            <input class="input input-sm" id="nt_ref" type="number" value="6" placeholder="REF">
+          </div>
+          <div class="row">
+            <input class="input input-sm" id="nt_dex" type="number" value="6" placeholder="DEX">
+            <input class="input input-sm" id="nt_skill" type="number" value="6" placeholder="Hab">
+            <input class="input input-sm" id="nt_evasion" type="number" value="6" placeholder="Evasao">
+            <input class="input input-sm" id="nt_move" type="number" value="6" placeholder="MOVE">
+          </div>
+          <div class="row">
+            <input class="input input-sm" id="nt_sp" type="number" value="7" placeholder="SP">
+            <select class="input" id="nt_weapon">
+              ${Object.entries(WEAPONS)
+                .map(([key, weapon]) => `<option value="${key}">${weapon.name}</option>`)
+                .join('')}
+            </select>
+          </div>
+          <label class="checkbox-label">
+            <input type="checkbox" id="nt_autoDodge" checked> Auto esquiva (REF 8+)
+          </label>
+          <button class="btn" onclick="addToken()" style="margin-top:6px;width:100%">ADICIONAR TOKEN</button>
+        </div>
+      </details>`;
+
+      html += `<div class="card">
+        <div class="card-title">TOKENS (${tokens.length})</div>
+        <div class="token-list">`;
+
+      if (tokens.length === 0) {
+        html += '<div class="helper">Nenhum token.</div>';
+      } else {
+        const displayTokens = combat.active
+          ? combat.turnOrder
+              .map((id) => tokens.find((token) => token.id === id))
+              .filter(Boolean)
+              .concat(tokens.filter((token) => !combat.turnOrder.includes(token.id)))
+          : [...tokens];
+
+        displayTokens.forEach((token) => {
+          const isDead = (token.hp || 0) <= 0;
+          const isActive = combat.active && combat.turnOrder[combat.turnIndex] === token.id;
+          const isSelected = selectedTokenId === token.id;
+          const hpRatio = Math.max(0, (token.hp || 0) / (token.maxHp || 1));
+          const barColor = hpRatio > 0.5 ? '#00ff96' : hpRatio > 0.25 ? '#ffaa00' : '#ff4141';
+          const weapon = WEAPONS[token.weaponKey] || WEAPONS.pistola;
+
+          html += `<div class="token-item ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}" onclick="selectToken('${token.id}')" style="border-left:3px solid ${token.color}">
+            <div class="token-header">
+              <span>${isActive ? '>> ' : ''}<b style="color:${token.color}">${token.name}</b> <span class="helper">(T${token.team})</span></span>
+              <span style="color:${barColor}">${token.hp}/${token.maxHp}</span>
+            </div>
+            <div class="hp-bar"><div class="hp-bar-fill" style="width:${hpRatio * 100}%;background:${barColor}"></div></div>
+            <div class="token-meta">REF:${token.ref} DEX:${token.dex} BODY:${token.body} SP:${token.sp} | ${weapon.name} | Pos:${token.x},${token.y}</div>`;
+
+          if (isSelected) {
+            html += `<div style="margin-top:6px;border-top:1px solid rgba(120,226,255,0.2);padding-top:4px">
+              <div class="row">
+                <input class="input" value="${token.name}" onchange="updateToken('${token.id}','name',this.value)">
+                <input class="input input-sm" type="color" value="${token.color}" onchange="updateToken('${token.id}','color',this.value)">
+              </div>
+              <div class="row">
+                <input class="input input-sm" type="number" value="${token.hp}" placeholder="HP" onchange="updateToken('${token.id}','hp',Number(this.value))">
+                <input class="input input-sm" type="number" value="${token.maxHp}" placeholder="MaxHP" onchange="updateToken('${token.id}','maxHp',Number(this.value))">
+                <input class="input input-sm" type="number" value="${token.body}" placeholder="BODY" onchange="updateToken('${token.id}','body',Number(this.value))">
+                <input class="input input-sm" type="number" value="${token.ref}" placeholder="REF" onchange="updateToken('${token.id}','ref',Number(this.value))">
+              </div>
+              <div class="row">
+                <input class="input input-sm" type="number" value="${token.dex}" placeholder="DEX" onchange="updateToken('${token.id}','dex',Number(this.value))">
+                <input class="input input-sm" type="number" value="${token.skill}" placeholder="Hab" onchange="updateToken('${token.id}','skill',Number(this.value))">
+                <input class="input input-sm" type="number" value="${token.evasion}" placeholder="Evasao" onchange="updateToken('${token.id}','evasion',Number(this.value))">
+                <input class="input input-sm" type="number" value="${token.move}" placeholder="MOVE" onchange="updateToken('${token.id}','move',Number(this.value))">
+              </div>
+              <div class="row">
+                <input class="input input-sm" type="number" value="${token.sp}" placeholder="SP" onchange="updateToken('${token.id}','sp',Number(this.value))">
+                <select class="input" onchange="updateToken('${token.id}','weaponKey',this.value)">
+                  ${Object.entries(WEAPONS)
+                    .map(([key, weapon]) => `<option value="${key}" ${key === token.weaponKey ? 'selected' : ''}>${weapon.name}</option>`)
+                    .join('')}
+                </select>
+              </div>
+              <label class="checkbox-label">
+                <input type="checkbox" ${token.autoDodge ? 'checked' : ''} onchange="updateToken('${token.id}','autoDodge',this.checked)"> Auto esquiva
+              </label>
+              <button class="btn danger" onclick="removeToken('${token.id}')" style="margin-top:4px">EXCLUIR</button>
+            </div>`;
+          }
+
+          html += '</div>';
+        });
+      }
+
+      html += '</div></div>';
+
+      html += `<div class="card">
+        <div class="card-title">LOG DE COMBATE</div>
+        <div class="log-box">`;
+
+      if (combat.log.length === 0) {
+        html += '<div class="helper">Sem eventos.</div>';
+      } else {
+        combat.log.forEach((entry) => {
+          html += `<div class="log-line ${entry.tone || ''}">${entry.message}</div>`;
+        });
+      }
+
+      html += '</div></div>';
+
+      if (status) {
+        html += `<div class="status-msg">AVISO: ${status}</div>`;
+      }
+
+      html += buildRulesHTML();
+
+      panelEl.innerHTML = html;
+    };
+
+    const buildRulesHTML = () => `
+      <details class="card">
+        <summary>REGRAS RAPIDAS</summary>
+        <div class="rules-grid" style="padding:6px 0">
+          <div class="card">
+            <div class="card-title">Tempo e Turnos</div>
+            <div class="helper">Cada rodada ~3s. Turno: 1 Acao de Movimento + 1 Acao.</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Iniciativa</div>
+            <div class="helper">REF + 1d10. Ordem decrescente.</div>
+          </div>
+          <div class="card">
+            <div class="card-title">DV por Distancia</div>
+            <table class="combat-table">
+              <tr><th>Arma</th><th>0-6</th><th>7-12</th><th>13-25</th><th>26-50</th><th>51-100</th><th>101+</th></tr>
+              <tr><td>Pistola</td><td>13</td><td>15</td><td>20</td><td>25</td><td>30</td><td>-</td></tr>
+              <tr><td>SMG</td><td>15</td><td>13</td><td>15</td><td>20</td><td>25</td><td>30</td></tr>
+              <tr><td>Espingarda</td><td>13</td><td>15</td><td>20</td><td>25</td><td>30</td><td>35</td></tr>
+              <tr><td>Rifle Assalto</td><td>17</td><td>16</td><td>15</td><td>13</td><td>15</td><td>20</td></tr>
+              <tr><td>Rifle Sniper</td><td>30</td><td>25</td><td>25</td><td>20</td><td>15</td><td>16</td></tr>
+              <tr><td>Arco</td><td>15</td><td>13</td><td>15</td><td>17</td><td>20</td><td>22</td></tr>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title">Armas Brancas</div>
+            <table class="combat-table">
+              <tr><th>Tipo</th><th>Dano</th><th>Maos</th></tr>
+              <tr><td>Leve (faca)</td><td>1d6</td><td>1</td></tr>
+              <tr><td>Media (facao)</td><td>2d6</td><td>1-2</td></tr>
+              <tr><td>Pesada (espada)</td><td>3d6</td><td>1-2</td></tr>
+              <tr><td>M.Pesada (motosserra)</td><td>4d6</td><td>2</td></tr>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title">Briga</div>
+            <div class="helper">BODY &lt;=4: 1d6 | 5-6: 2d6 | 7-10: 3d6 | 11+: 4d6</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Armadura</div>
+            <table class="combat-table">
+              <tr><th>Tipo</th><th>SP</th><th>Penalidade</th></tr>
+              <tr><td>Couro</td><td>4</td><td>-</td></tr>
+              <tr><td>Kevlar</td><td>7</td><td>-</td></tr>
+              <tr><td>Blindagem Leve</td><td>11</td><td>-</td></tr>
+              <tr><td>Blindagem Media</td><td>12</td><td>-2</td></tr>
+              <tr><td>Blindagem Pesada</td><td>13</td><td>-2</td></tr>
+              <tr><td>Flak</td><td>15</td><td>-4</td></tr>
+              <tr><td>Metalgear</td><td>18</td><td>-4</td></tr>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title">Ferimentos</div>
+            <div class="helper">Leve: sem efeito | Grave (&lt;50% HP): -2 acoes | Mortal (&lt;1 HP): Death Save por turno.</div>
+          </div>
+        </div>
+      </details>
+    `;
+
+    const fullRefresh = (skipSave = false) => {
+      buildGrid();
+      rebuildCells();
+      rebuildTokens();
+      rebuildMoveRange();
+      rebuildTargetableHighlights();
+      renderPanel();
+      if (!skipSave) persistState();
+    };
+
+    const centerCamera = () => {
+      controls.target.set((gridCols * CELL_SIZE) / 2, 0, (gridRows * CELL_SIZE) / 2);
+      camera.position.set(gridCols, 18, gridRows + 12);
+      controls.update();
+    };
+
+    const applySharedState = (data) => {
+      if (disposed) return;
+      const merged = {
+        ...DEFAULT_STATE,
+        ...data,
+        grid: { ...DEFAULT_STATE.grid, ...(data?.grid ?? {}) },
+        combat: { ...DEFAULT_STATE.combat, ...(data?.combat ?? {}) },
+      };
+      gridCols = clamp(Number(merged.grid.cols) || DEFAULT_STATE.grid.cols, MIN_COLS, MAX_COLS);
+      gridRows = clamp(Number(merged.grid.rows) || DEFAULT_STATE.grid.rows, MIN_ROWS, MAX_ROWS);
+      tokens = Array.isArray(merged.tokens) ? merged.tokens : [];
+      cells = merged.cells && typeof merged.cells === 'object' ? merged.cells : {};
+      coverHpDefault = Number(merged.coverHpDefault) || DEFAULT_STATE.coverHpDefault;
+      combat = {
+        ...DEFAULT_STATE.combat,
+        ...merged.combat,
+        log: Array.isArray(merged.combat?.log) ? merged.combat.log : [],
+      };
+      if (selectedTokenId && !tokens.find((token) => token.id === selectedTokenId)) {
+        selectedTokenId = null;
+      }
+      applyingRemoteRef.current = true;
+      fullRefresh(true);
+      applyingRemoteRef.current = false;
+      lastSavedRef.current = JSON.stringify(snapshotState());
+    };
+
+    const handleResize = () => {
+      const width = canvasWrap.clientWidth || 1;
+      const height = canvasWrap.clientHeight || 1;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false);
+    };
+
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(canvasWrap);
+
+    const clock = new THREE.Clock();
+    let pulseTime = 0;
+    let animationFrameId = 0;
+
+    const animate = () => {
+      animationFrameId = requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      pulseTime += delta;
+
+      controls.update();
+      updateEffects();
+
+      const pulseVal = (Math.sin(pulseTime * 4) + 1) / 2;
+
+      tokenGroup.children.forEach((group) => {
+        group.children.forEach((child) => {
+          if (child.userData?.pulse) {
+            child.material.opacity = 0.3 + pulseVal * 0.5;
+          }
+          if (child.geometry?.type === 'PlaneGeometry') {
+            child.lookAt(camera.position);
+          }
+        });
+      });
+
+      targetableHighlights.forEach((highlight) => {
+        if (highlight.userData?.pulse) {
+          highlight.material.opacity = 0.3 + pulseVal * 0.4;
+        }
+      });
+
+      moveRangeGroup.children.forEach((cell) => {
+        cell.material.opacity = 0.15 + pulseVal * 0.15;
+      });
+
+      renderer.render(scene, camera);
+    };
+
+    const initialLoad = async () => {
+      const stored = await getStoredState({
+        campaignId: storageCampaignId,
+        playerId: storagePlayerId,
+        scope: GRID_SCOPE,
+        fallback: DEFAULT_STATE,
+      });
+      applySharedState(stored || DEFAULT_STATE);
+    };
+
+    void initialLoad();
+
+    const unsubscribe = subscribeStoredState({
+      campaignId: storageCampaignId,
+      playerId: storagePlayerId,
+      scope: GRID_SCOPE,
+      fallback: DEFAULT_STATE,
+      onChange: applySharedState,
+    });
+
+    const clearMap = () => {
+      cells = {};
+      fullRefresh();
+      setStatusMsg('Mapa limpo.');
+    };
+
+    window.startCombat = startCombat;
+    window.resetCombat = resetCombat;
+    window.enterMove = enterMove;
+    window.enterAttack = enterAttack;
+    window.endTurn = endTurn;
+    window.setTool = (value) => {
+      playSound('button');
+      tool = tool === value ? '' : value;
+      renderPanel();
+    };
+    window.applyGridSize = () => {
+      const cInput = document.getElementById('gridColsInput');
+      const rInput = document.getElementById('gridRowsInput');
+      const nextCols = clamp(Number(cInput?.value) || gridCols, MIN_COLS, MAX_COLS);
+      const nextRows = clamp(Number(rInput?.value) || gridRows, MIN_ROWS, MAX_ROWS);
+      gridCols = nextCols;
+      gridRows = nextRows;
+
+      tokens.forEach((token) => {
+        token.x = clamp(token.x, 0, nextCols - 1);
+        token.y = clamp(token.y, 0, nextRows - 1);
+      });
+
+      const newCells = {};
+      Object.entries(cells).forEach(([key, value]) => {
+        const [x, y] = key.split(',').map(Number);
+        if (x < nextCols && y < nextRows) newCells[key] = value;
+      });
+      cells = newCells;
+
+      fullRefresh();
+      setStatusMsg(`Grid: ${nextCols}x${nextRows}`);
+    };
+    window.addToken = () => {
+      playSound('button');
+      const name = document.getElementById('nt_name')?.value?.trim() || `Token ${tokens.length + 1}`;
+      const cell = findOpenCell();
+      if (!cell) {
+        setStatusMsg('Sem espaco!');
+        return;
+      }
+
+      tokens.push({
+        id: uid(),
+        name,
+        team: document.getElementById('nt_team')?.value || '1',
+        color: document.getElementById('nt_color')?.value || '#d43a3a',
+        hp: Number(document.getElementById('nt_hp')?.value) || 30,
+        maxHp: Number(document.getElementById('nt_maxHp')?.value) || 30,
+        body: Number(document.getElementById('nt_body')?.value) || 6,
+        ref: Number(document.getElementById('nt_ref')?.value) || 6,
+        dex: Number(document.getElementById('nt_dex')?.value) || 6,
+        skill: Number(document.getElementById('nt_skill')?.value) || 6,
+        evasion: Number(document.getElementById('nt_evasion')?.value) || 6,
+        move: Number(document.getElementById('nt_move')?.value) || 6,
+        sp: Number(document.getElementById('nt_sp')?.value) || 7,
+        weaponKey: document.getElementById('nt_weapon')?.value || 'pistola',
+        autoDodge: document.getElementById('nt_autoDodge')?.checked ?? true,
+        x: cell.x,
+        y: cell.y,
+      });
+
+      fullRefresh();
+      setStatusMsg(`${name} adicionado.`);
+    };
+    window.removeToken = (id) => {
+      tokens = tokens.filter((token) => token.id !== id);
+      combat.turnOrder = combat.turnOrder.filter((entry) => entry !== id);
+      if (combat.turnIndex >= combat.turnOrder.length) combat.turnIndex = 0;
+      if (selectedTokenId === id) selectedTokenId = null;
+      fullRefresh();
+    };
+    window.selectToken = (id) => {
+      selectedTokenId = selectedTokenId === id ? null : id;
+      renderPanel();
+    };
+    window.updateToken = (id, field, value) => {
+      const token = tokens.find((entry) => entry.id === id);
+      if (!token) return;
+      token[field] = value;
+      fullRefresh();
+    };
+    window.updateCoverHp = (value) => {
+      coverHpDefault = Number(value) || 20;
+      persistState();
+    };
+    window.clearMap = clearMap;
+    window.centerCamera = () => {
+      playSound('button');
+      centerCamera();
+    };
+
+    handleResize();
+    fullRefresh(true);
+    animate();
+
+    return () => {
+      disposed = true;
+      if (statusTimer) window.clearTimeout(statusTimer);
+      unsubscribe?.();
+      resizeObserver.disconnect();
+      renderer.domElement.removeEventListener('click', onCanvasClick);
+      renderer.domElement.removeEventListener('mousemove', onCanvasMouseMove);
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      clearGroup(gridGroup);
+      clearGroup(cellGroup);
+      clearGroup(tokenGroup);
+      clearGroup(moveRangeGroup);
+      clearGroup(effectGroup);
+      clearGroup(highlightGroup);
+      controls.dispose();
+      renderer.dispose();
+      if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+      delete window.startCombat;
+      delete window.resetCombat;
+      delete window.enterMove;
+      delete window.enterAttack;
+      delete window.endTurn;
+      delete window.setTool;
+      delete window.applyGridSize;
+      delete window.addToken;
+      delete window.removeToken;
+      delete window.selectToken;
+      delete window.updateToken;
+      delete window.updateCoverHp;
+      delete window.clearMap;
+      delete window.centerCamera;
+    };
+  }, [campaignId, playerId]);
 
   const handleBack = () => {
     playSound('button');
     onBack();
   };
 
-  const handleToolToggle = (nextTool) => {
-    playSound('button');
-    setTool((prev) => (prev === nextTool ? '' : nextTool));
-  };
-
-  const appendLog = useCallback((message, tone = 'info') => {
-    setCombatState((prev) => {
-      const next = [...(prev.log || []), { id: `${Date.now()}-${Math.random()}`, message, tone }];
-      return { ...prev, log: next.slice(-120) };
-    });
-  }, []);
-
-  const addEffect = useCallback((type, payload, ttl = 600) => {
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setEffects((prev) => ({ ...prev, [type]: [...(prev[type] || []), { id, ...payload }] }));
-    window.setTimeout(() => {
-      setEffects((prev) => ({ ...prev, [type]: prev[type].filter((item) => item.id !== id) }));
-    }, ttl);
-  }, []);
-
-  const resetCombat = () => {
-    lastTurnRef.current = null;
-    setCombatState({
-      active: false,
-      phase: 'setup',
-      round: 0,
-      turnOrder: [],
-      turnIndex: 0,
-      hasMoved: false,
-      hasActed: false,
-      log: [],
-    });
-    setMoveRange(new Set());
-    appendLog('Combate resetado.', 'warn');
-  };
-
-  function startCombat() {
-    if (tokens.length === 0) {
-      setStatus('Adicione tokens antes de iniciar o combate.');
-      return;
-    }
-
-    const aliveTokens = tokens.filter((token) => (token.hp ?? 0) > 0);
-    if (aliveTokens.length === 0) {
-      setStatus('Nenhum token vivo para iniciar combate.');
-      return;
-    }
-
-    const withInitiative = aliveTokens.map((token) => ({
-      id: token.id,
-      roll: token.ref + rollDie(10) + Math.random() * 0.01,
-    }));
-    const sorted = withInitiative.sort((a, b) => b.roll - a.roll).map((entry) => entry.id);
-    setCombatState({
-      active: true,
-      phase: 'action',
-      round: 1,
-      turnOrder: sorted,
-      turnIndex: 0,
-      hasMoved: false,
-      hasActed: false,
-      log: [{ id: `${Date.now()}-${Math.random()}`, message: 'Combate iniciado.', tone: 'crit' }],
-    });
-    lastTurnRef.current = null;
-  }
-
-  function advanceTurn() {
-    setCombatState((prev) => {
-      if (!prev.turnOrder.length) return prev;
-      if (!tokens.length) return prev;
-      let nextIndex = prev.turnIndex + 1;
-      let nextRound = prev.round;
-      const aliveIds = new Set(tokens.filter((token) => (token.hp ?? 0) > 0).map((token) => token.id));
-      let safety = 0;
-      while (safety < prev.turnOrder.length) {
-        if (nextIndex >= prev.turnOrder.length) {
-          nextIndex = 0;
-          nextRound += 1;
-        }
-        if (aliveIds.has(prev.turnOrder[nextIndex])) break;
-        nextIndex += 1;
-        safety += 1;
-      }
-      return {
-        ...prev,
-        turnIndex: nextIndex,
-        round: nextRound,
-        phase: 'action',
-        hasMoved: false,
-        hasActed: false,
-      };
-    });
-    setMoveRange(new Set());
-  }
-
-  function enterMove() {
-    if (!combatState.active || !currentToken || combatState.hasMoved) return;
-    const range = buildMoveRange(
-      currentToken,
-      Number(currentToken.move) || 0,
-      (x, y) => isCellBlocked(x, y),
-      (x, y) => isCellOccupied(x, y, currentToken.id),
-      gridCols,
-      gridRows
-    );
-    setMoveRange(range);
-    setCombatState((prev) => ({ ...prev, phase: 'move' }));
-  }
-
-  function enterAttack() {
-    if (!combatState.active || !currentToken || combatState.hasActed) return;
-    setCombatState((prev) => ({ ...prev, phase: 'attack' }));
-  }
-
-  function endTurn() {
-    appendLog(`Fim do turno: ${currentToken?.name || '???'}`, 'info');
-    advanceTurn();
-  }
-
-  const handleApplyGrid = () => {
-    const nextCols = clamp(Number(colsInput) || 0, MIN_COLS, MAX_COLS);
-    const nextRows = clamp(Number(rowsInput) || 0, MIN_ROWS, MAX_ROWS);
-    setGridCols(nextCols);
-    setGridRows(nextRows);
-    setTokens((prev) =>
-      prev.map((token) => ({
-        ...token,
-        x: clamp(token.x, 0, nextCols - 1),
-        y: clamp(token.y, 0, nextRows - 1),
-      }))
-    );
-    setCells((prev) => {
-      const next = {};
-      Object.entries(prev).forEach(([key, cell]) => {
-        const [xRaw, yRaw] = key.split(',').map((value) => Number(value));
-        if (!Number.isFinite(xRaw) || !Number.isFinite(yRaw)) return;
-        if (xRaw >= nextCols || yRaw >= nextRows) return;
-        next[key] = cell;
-      });
-      return next;
-    });
-    setStatus(`Grid atualizado para ${nextCols}x${nextRows}.`);
-  };
-
-  const handleAddToken = () => {
-    const name = newToken.name.trim() || `Token ${tokens.length + 1}`;
-    const cell = findOpenCell(tokens, gridCols, gridRows);
-    if (!cell) {
-      setStatus('Sem espaco no grid para novo token.');
-      return;
-    }
-    if (isCellBlocked(cell.x, cell.y)) {
-      setStatus('Sem espaco no grid (coberturas/paredes bloqueando).');
-      return;
-    }
-
-    setTokens((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        name,
-        team: newToken.team,
-        color: newToken.color,
-        hp: Number(newToken.hp) || DEFAULT_TOKEN.hp,
-        maxHp: Number(newToken.maxHp) || Number(newToken.hp) || DEFAULT_TOKEN.maxHp,
-        body: Number(newToken.body) || DEFAULT_TOKEN.body,
-        ref: Number(newToken.ref) || DEFAULT_TOKEN.ref,
-        dex: Number(newToken.dex) || DEFAULT_TOKEN.dex,
-        skill: Number(newToken.skill) || DEFAULT_TOKEN.skill,
-        evasion: Number(newToken.evasion) || DEFAULT_TOKEN.evasion,
-        move: Number(newToken.move) || DEFAULT_TOKEN.move,
-        sp: Number(newToken.sp) || DEFAULT_TOKEN.sp,
-        weaponKey: newToken.weaponKey || DEFAULT_TOKEN.weaponKey,
-        autoDodge: Boolean(newToken.autoDodge),
-        x: cell.x,
-        y: cell.y,
-      },
-    ]);
-    setStatus(`Token ${name} adicionado.`);
-  };
-
-  const handleRemoveToken = (tokenId) => {
-    setTokens((prev) => prev.filter((token) => token.id !== tokenId));
-  };
-
-  const handleTokenChange = (tokenId, field, value) => {
-    const nextValue = NUMERIC_FIELDS.has(field) ? Number(value) : value;
-    setTokens((prev) =>
-      prev.map((token) => (token.id === tokenId ? { ...token, [field]: nextValue } : token))
-    );
-  };
-
-  const handleTokenMouseDown = (event, token) => {
-    if (combatState.active && combatState.phase !== 'setup') return;
-    event.preventDefault();
-    const gridRect = gridRef.current?.getBoundingClientRect();
-    if (!gridRect) return;
-    const relX = event.clientX - gridRect.left;
-    const relY = event.clientY - gridRect.top;
-    const cellX = clamp(Math.floor(relX / CELL_SIZE), 0, gridCols - 1);
-    const cellY = clamp(Math.floor(relY / CELL_SIZE), 0, gridRows - 1);
-    setDragging({ id: token.id, x: cellX, y: cellY, startX: token.x, startY: token.y });
-    dragRef.current = { id: token.id, x: cellX, y: cellY, startX: token.x, startY: token.y };
-  };
-
-  const handleGridMouseMove = (event) => {
-    if (!gridRef.current || dragRef.current) return;
-    const gridRect = gridRef.current.getBoundingClientRect();
-    const relX = event.clientX - gridRect.left;
-    const relY = event.clientY - gridRect.top;
-    if (relX < 0 || relY < 0 || relX >= gridRect.width || relY >= gridRect.height) {
-      setHoverCell(null);
-      return;
-    }
-    const cellX = clamp(Math.floor(relX / CELL_SIZE), 0, gridCols - 1);
-    const cellY = clamp(Math.floor(relY / CELL_SIZE), 0, gridRows - 1);
-    setHoverCell({ x: cellX, y: cellY, blocked: Boolean(cells[`${cellX},${cellY}`]) });
-  };
-
-  const handleGridMouseLeave = () => {
-    if (dragRef.current) return;
-    setHoverCell(null);
-  };
-
-  const handleGridClick = (event) => {
-    if (!gridRef.current) return;
-    if (combatState.active && combatState.phase === 'move' && currentToken) {
-      const gridRect = gridRef.current.getBoundingClientRect();
-      const relX = event.clientX - gridRect.left;
-      const relY = event.clientY - gridRect.top;
-      const cellX = clamp(Math.floor(relX / CELL_SIZE), 0, gridCols - 1);
-      const cellY = clamp(Math.floor(relY / CELL_SIZE), 0, gridRows - 1);
-      const key = `${cellX},${cellY}`;
-      if (!moveRange.has(key)) return;
-      setTokens((prev) =>
-        prev.map((token) => (token.id === currentToken.id ? { ...token, x: cellX, y: cellY } : token))
-      );
-      setCombatState((prev) => ({ ...prev, hasMoved: true, phase: 'action' }));
-      setMoveRange(new Set());
-      addEffect('moves', { x: cellX, y: cellY }, 420);
-      return;
-    }
-
-    if (combatState.active && combatState.phase !== 'setup') return;
-    if (!tool) return;
-    const gridRect = gridRef.current.getBoundingClientRect();
-    const relX = event.clientX - gridRect.left;
-    const relY = event.clientY - gridRect.top;
-    const cellX = clamp(Math.floor(relX / CELL_SIZE), 0, gridCols - 1);
-    const cellY = clamp(Math.floor(relY / CELL_SIZE), 0, gridRows - 1);
-    const key = `${cellX},${cellY}`;
-    if (tokens.some((token) => token.x === cellX && token.y === cellY)) {
-      setStatus('Essa celula ja possui um token.');
-      return;
-    }
-
-    setCells((prev) => {
-      const next = { ...prev };
-      if (tool === 'erase') {
-        delete next[key];
-        return next;
-      }
-      if (tool === 'wall') {
-        if (next[key]?.type === 'wall') {
-          delete next[key];
-        } else {
-          next[key] = { type: 'wall' };
-        }
-        return next;
-      }
-      if (tool === 'cover') {
-        if (next[key]?.type === 'cover') {
-          delete next[key];
-        } else {
-          const hp = Number(coverHpInput);
-          next[key] = { type: 'cover', hp: Number.isFinite(hp) ? hp : 20 };
-        }
-        return next;
-      }
-      return next;
-    });
-  };
-
-  const handleTokenClick = (token) => {
-    if (!combatState.active || combatState.phase !== 'attack' || !currentToken) return;
-    if (token.id === currentToken.id) return;
-    if (token.team === currentToken.team) return;
-    if ((token.hp ?? 0) <= 0) {
-      appendLog('Alvo ja esta fora de combate.', 'warn');
-      return;
-    }
-    const weapon = WEAPONS[currentToken.weaponKey] || WEAPONS.pistola;
-    const distance = getDistanceMeters(currentToken, token);
-    if (weapon.melee && distance > CELL_METERS * Math.SQRT2 + 0.1) {
-      appendLog('Alvo fora do alcance corpo a corpo.', 'warn');
-      return;
-    }
-    if (!weapon.melee) {
-      const inSight = hasLineOfSight(currentToken, token, (x, y) => cells[`${x},${y}`]?.type === 'wall');
-      if (!inSight) {
-        appendLog('Sem linha de visao.', 'warn');
-        return;
-      }
-    }
-
-    const roll = rollDie(10);
-    const attackBase = weapon.melee ? currentToken.dex + currentToken.skill : currentToken.ref + currentToken.skill;
-    const attackTotal = attackBase + roll;
-    let hit = false;
-    let defenseText = '';
-
-    if (weapon.melee) {
-      const defendRoll = rollDie(10);
-      const defendTotal = token.dex + token.evasion + defendRoll;
-      defenseText = `DEX+Evasao ${defendTotal}`;
-      hit = attackTotal > defendTotal;
-    } else if (token.autoDodge && token.ref >= 8) {
-      const defendRoll = rollDie(10);
-      const defendTotal = token.dex + token.evasion + defendRoll;
-      defenseText = `Esquiva ${defendTotal}`;
-      hit = attackTotal > defendTotal;
-    } else {
-      const rangeBand = getRangeBand(distance);
-      let dv = weapon.rangeType ? RANGE_DV[weapon.rangeType]?.[rangeBand] : null;
-      if (dv == null) {
-        appendLog('Fora do alcance.', 'warn');
-        return;
-      }
-      const coverBonus = isTokenInCover(token);
-      if (coverBonus) {
-        dv += 2;
-      }
-      defenseText = coverBonus ? `DV ${dv} (cobertura)` : `DV ${dv}`;
-      hit = attackTotal >= dv;
-    }
-
-    appendLog(
-      `${currentToken.name} ataca ${token.name}: ${attackTotal} vs ${defenseText} (${hit ? 'ACERTOU' : 'ERROU'})`,
-      hit ? 'heal' : 'dmg'
-    );
-
-    addEffect(
-      'shots',
-      {
-        x1: currentToken.x,
-        y1: currentToken.y,
-        x2: token.x,
-        y2: token.y,
-        melee: weapon.melee,
-      },
-      weapon.melee ? 200 : 240
-    );
-
-    if (!hit) {
-      setCombatState((prev) => ({ ...prev, hasActed: true, phase: 'action' }));
-      return;
-    }
-
-    const diceCount = weapon.brawl ? getBrawlDice(currentToken.body || 6) : weapon.dice;
-    const rolls = rollD6(diceCount);
-    const total = rolls.reduce((sum, value) => sum + value, 0);
-    const crit = rolls.filter((value) => value === 6).length >= 2;
-    const effectiveSp = weapon.halfSp ? Math.ceil((token.sp || 0) / 2) : token.sp || 0;
-    let damage = Math.max(0, total - effectiveSp);
-    if (crit) damage += 5;
-
-    setTokens((prev) =>
-      prev.map((entry) => {
-        if (entry.id !== token.id) return entry;
-        const nextHp = (entry.hp || 0) - damage;
-        const nextSp = damage > 0 ? Math.max(0, (entry.sp || 0) - 1) : entry.sp;
-        return { ...entry, hp: nextHp, sp: nextSp };
-      })
-    );
-
-    addEffect(
-      'hits',
-      {
-        x: token.x,
-        y: token.y,
-      },
-      400
-    );
-    addEffect(
-      'floats',
-      {
-        x: token.x,
-        y: token.y,
-        text: `-${damage}`,
-        tone: crit ? 'crit' : 'dmg',
-      },
-      700
-    );
-    appendLog(`Dano: ${rolls.join(', ')} (${total}) SP ${effectiveSp} => ${damage}`, 'info');
-    setCombatState((prev) => ({ ...prev, hasActed: true, phase: 'action' }));
-  };
-
-  useEffect(() => {
-    if (!combatState.active || !currentToken) return;
-    if (lastTurnRef.current === currentToken.id) return;
-    lastTurnRef.current = currentToken.id;
-    appendLog(`Turno de ${currentToken.name}.`, 'info');
-  }, [appendLog, combatState.active, currentToken]);
-
   return (
-    <div className="menu-shell combat-shell">
+    <div className="menu-shell combat-shell combat-3d-shell">
       <div className="panel-header-row">
         <h2 className="menu-title">Arena de Combate</h2>
         <button className="menu-back" onClick={handleBack}>VOLTAR</button>
       </div>
 
-      <div className="combat-layout">
-        <div className="combat-grid-wrap">
-          <div className="combat-grid-hud">
-            REDE: ESTAVEL | SINAL: FORTE | HORA DO SISTEMA: {systemTime}
-          </div>
-          <div className="combat-grid-frame">
-            <div className="combat-axis corner" />
-            <div
-              className="combat-axis top"
-              style={{ gridTemplateColumns: `repeat(${gridCols}, ${CELL_SIZE}px)` }}
-            >
-              {columnLabels.map((label, idx) => (
-                <div key={`col-${label}-${idx}`} className="combat-axis-cell">
-                  {label}
-                </div>
-              ))}
-            </div>
-            <div
-              className="combat-axis left"
-              style={{ gridTemplateRows: `repeat(${gridRows}, ${CELL_SIZE}px)` }}
-            >
-              {rowLabels.map((label, idx) => (
-                <div key={`row-${label}-${idx}`} className="combat-axis-cell">
-                  {label}
-                </div>
-              ))}
-            </div>
-            <div
-              ref={gridRef}
-              className="combat-grid"
-              style={{
-                width: `${gridCols * CELL_SIZE}px`,
-                height: `${gridRows * CELL_SIZE}px`,
-                backgroundSize: `${CELL_SIZE}px ${CELL_SIZE}px`,
-              }}
-              onMouseMove={handleGridMouseMove}
-              onMouseLeave={handleGridMouseLeave}
-              onClick={handleGridClick}
-            >
-              <div className="combat-grid-radar" />
-              <div className="combat-grid-scanline" />
-              {moveRange.size
-                ? Array.from(moveRange).map((key) => {
-                    const [x, y] = key.split(',').map((value) => Number(value));
-                    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-                    return (
-                      <div
-                        key={`move-${key}`}
-                        className="combat-move-cell"
-                        style={{
-                          left: `${x * CELL_SIZE}px`,
-                          top: `${y * CELL_SIZE}px`,
-                          width: `${CELL_SIZE}px`,
-                          height: `${CELL_SIZE}px`,
-                        }}
-                      />
-                    );
-                  })
-                : null}
-              {hoverCell ? (
-                <div
-                  className={`combat-hover ${hoverCell.blocked ? 'is-blocked' : ''}`}
-                  style={{
-                    left: `${hoverCell.x * CELL_SIZE}px`,
-                    top: `${hoverCell.y * CELL_SIZE}px`,
-                    width: `${CELL_SIZE}px`,
-                    height: `${CELL_SIZE}px`,
-                  }}
-                />
-              ) : null}
-              {Object.entries(cells).map(([key, cell]) => {
-                const [x, y] = key.split(',').map((value) => Number(value));
-                if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-                return (
-                  <div
-                    key={key}
-                    className={`combat-cell ${cell.type}`}
-                    style={{
-                      left: `${x * CELL_SIZE}px`,
-                      top: `${y * CELL_SIZE}px`,
-                      width: `${CELL_SIZE}px`,
-                      height: `${CELL_SIZE}px`,
-                    }}
-                  >
-                    {cell.type === 'cover' && Number.isFinite(Number(cell.hp)) ? (
-                      <span className="combat-cell-hp">{cell.hp}</span>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {effects.shots.map((shot) => {
-                const x1 = shot.x1 * CELL_SIZE + CELL_SIZE / 2;
-                const y1 = shot.y1 * CELL_SIZE + CELL_SIZE / 2;
-                const x2 = shot.x2 * CELL_SIZE + CELL_SIZE / 2;
-                const y2 = shot.y2 * CELL_SIZE + CELL_SIZE / 2;
-                const length = Math.hypot(x2 - x1, y2 - y1);
-                const angle = Math.atan2(y2 - y1, x2 - x1);
-                return (
-                  <div
-                    key={shot.id}
-                    className={`combat-shot-line ${shot.melee ? 'is-melee' : ''}`}
-                    style={{
-                      left: `${x1}px`,
-                      top: `${y1}px`,
-                      width: `${length}px`,
-                      transform: `rotate(${angle}rad)`,
-                    }}
-                  />
-                );
-              })}
-              {effects.hits.map((hit) => (
-                <div
-                  key={hit.id}
-                  className="combat-hit-marker"
-                  style={{
-                    left: `${hit.x * CELL_SIZE + CELL_SIZE / 2}px`,
-                    top: `${hit.y * CELL_SIZE + CELL_SIZE / 2}px`,
-                  }}
-                />
-              ))}
-              {effects.floats.map((float) => (
-                <div
-                  key={float.id}
-                  className={`combat-damage-float ${float.tone}`}
-                  style={{
-                    left: `${float.x * CELL_SIZE + CELL_SIZE / 2}px`,
-                    top: `${float.y * CELL_SIZE}px`,
-                  }}
-                >
-                  {float.text}
-                </div>
-              ))}
-              {effects.moves.map((move) => (
-                <div
-                  key={move.id}
-                  className="combat-move-marker"
-                  style={{
-                    left: `${move.x * CELL_SIZE + CELL_SIZE / 2}px`,
-                    top: `${move.y * CELL_SIZE + CELL_SIZE / 2}px`,
-                  }}
-                />
-              ))}
-              {tokens.map((token) => {
-                const isDragging = dragging?.id === token.id;
-                const display = isDragging ? dragging : token;
-                const isActiveTurn = combatState.active && currentToken?.id === token.id;
-                let isTargetable = false;
-                if (combatState.active && combatState.phase === 'attack' && currentToken) {
-                  if (token.id !== currentToken.id && token.team !== currentToken.team && (token.hp ?? 0) > 0) {
-                    const weapon = WEAPONS[currentToken.weaponKey] || WEAPONS.pistola;
-                    const distance = getDistanceMeters(currentToken, token);
-                    const meleeRange = CELL_METERS * Math.SQRT2 + 0.1;
-                    const inRange = weapon.melee
-                      ? distance <= meleeRange
-                      : weapon.rangeType
-                        ? RANGE_DV[weapon.rangeType]?.[getRangeBand(distance)] != null
-                        : false;
-                    const inSight = weapon.melee
-                      ? true
-                      : hasLineOfSight(currentToken, token, (x, y) => cells[`${x},${y}`]?.type === 'wall');
-                    isTargetable = Boolean(inRange && inSight);
-                  }
-                }
-                return (
-                  <div
-                    key={token.id}
-                    className={`combat-token ${isActiveTurn ? 'is-active' : ''} ${isTargetable ? 'is-targetable' : ''}`}
-                    onMouseDown={(event) => handleTokenMouseDown(event, token)}
-                    onClick={() => handleTokenClick(token)}
-                    style={{
-                      left: `${display.x * CELL_SIZE}px`,
-                      top: `${display.y * CELL_SIZE}px`,
-                      background: token.color,
-                    }}
-                  >
-                    <div className="combat-token-name">{token.name}</div>
-                    {token.hp !== '' ? <div className="combat-token-hp">{token.hp}</div> : null}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div className="combat-status">
-            {status || `Grid ${gridCols}x${gridRows} | Tokens: ${tokens.length}`}
-          </div>
-          <div className="entry-card">
-            <div className="entry-card-title">Log de Combate</div>
-            {combatState.log?.length ? (
-              <div className="combat-log">
-                {combatState.log.map((entry) => (
-                  <div key={entry.id} className={`combat-log-line ${entry.tone || ''}`}>
-                    {entry.message}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="entry-card-text">Sem eventos ainda.</div>
-            )}
-          </div>
+      <div className="combat-3d-surface">
+        <div className="combat-3d-topbar">
+          <span>REDE: ESTAVEL | OPERADOR: {displayPlayer}</span>
+          <span>{systemTime}</span>
+          <span>ARENA DE COMBATE 3D v2.0</span>
         </div>
-
-        <div className="combat-panel">
-          <div className="entry-card">
-            <div className="entry-card-title">Combate</div>
-            <div className="combat-controls">
-              <button className="mission-add-btn" onClick={startCombat} disabled={combatState.active}>
-                INICIAR COMBATE
-              </button>
-              <button className="mission-action-btn delete" onClick={resetCombat}>
-                RESETAR
-              </button>
-              <button
-                className={`mission-action-btn edit ${combatState.phase === 'move' ? 'is-active' : ''}`}
-                onClick={enterMove}
-                disabled={!combatState.active || combatState.hasMoved || !currentToken}
-              >
-                MOVER
-              </button>
-              <button
-                className={`mission-action-btn edit ${combatState.phase === 'attack' ? 'is-active' : ''}`}
-                onClick={enterAttack}
-                disabled={!combatState.active || combatState.hasActed || !currentToken}
-              >
-                ATACAR
-              </button>
-              <button
-                className="mission-action-btn"
-                onClick={endTurn}
-                disabled={!combatState.active || !currentToken}
-              >
-                PASSAR
-              </button>
-            </div>
-            <div className="entry-card-text">
-              {combatState.active ? `Rodada ${combatState.round}` : 'Combate desligado'}
-            </div>
-            {currentToken ? (
-              <div className="entry-card-text">
-                Turno: {currentToken.name} (Time {currentToken.team})
-              </div>
-            ) : null}
-            {combatState.phase !== 'setup' && combatState.active ? (
-              <div className="entry-tag">Fase: {combatState.phase.toUpperCase()}</div>
-            ) : null}
-          </div>
-
-          <div className="entry-card">
-            <div className="entry-card-title">Ferramentas</div>
-            <div className="combat-tools">
-              <button
-                className={`mission-action-btn edit ${tool === 'wall' ? 'is-active' : ''}`}
-                onClick={() => handleToolToggle('wall')}
-              >
-                PAREDE
-              </button>
-              <button
-                className={`mission-action-btn edit ${tool === 'cover' ? 'is-active' : ''}`}
-                onClick={() => handleToolToggle('cover')}
-              >
-                COBERTURA
-              </button>
-              <button
-                className={`mission-action-btn delete ${tool === 'erase' ? 'is-active' : ''}`}
-                onClick={() => handleToolToggle('erase')}
-              >
-                APAGAR
-              </button>
-              <input
-                className="entry-input"
-                value={coverHpInput}
-                onChange={(event) => setCoverHpInput(event.target.value)}
-                placeholder="HP cobertura"
-              />
-            </div>
-            <div className="entry-card-text">
-              Ferramenta ativa: {tool ? tool.toUpperCase() : 'NENHUMA'}
-            </div>
-          </div>
-          <div className="entry-card">
-            <div className="entry-card-title">Grid</div>
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                value={colsInput}
-                onChange={(event) => setColsInput(event.target.value)}
-                placeholder="Colunas"
-              />
-              <input
-                className="entry-input"
-                value={rowsInput}
-                onChange={(event) => setRowsInput(event.target.value)}
-                placeholder="Linhas"
-              />
-              <button className="mission-add-btn" onClick={handleApplyGrid}>APLICAR GRID</button>
-            </div>
-          </div>
-
-          <div className="entry-card">
-            <div className="entry-card-title">Adicionar Token</div>
-            <div className="entry-form">
-              <input
-                className="entry-input"
-                value={newToken.name}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, name: event.target.value }))}
-                placeholder="Nome"
-              />
-              <select
-                className="entry-input"
-                value={newToken.team}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, team: event.target.value }))}
-              >
-                <option value="1">Time 1</option>
-                <option value="2">Time 2</option>
-                <option value="3">Time 3</option>
-              </select>
-              <input
-                className="entry-input"
-                value={newToken.color}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, color: event.target.value }))}
-                placeholder="#cor"
-              />
-            </div>
-            <div className="entry-form compact">
-              <input
-                className="entry-input"
-                value={newToken.hp}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, hp: event.target.value }))}
-                placeholder="HP"
-              />
-              <input
-                className="entry-input"
-                value={newToken.maxHp}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, maxHp: event.target.value }))}
-                placeholder="HP Max"
-              />
-              <input
-                className="entry-input"
-                value={newToken.body}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, body: event.target.value }))}
-                placeholder="BODY"
-              />
-              <input
-                className="entry-input"
-                value={newToken.ref}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, ref: event.target.value }))}
-                placeholder="REF"
-              />
-              <input
-                className="entry-input"
-                value={newToken.dex}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, dex: event.target.value }))}
-                placeholder="DEX"
-              />
-              <input
-                className="entry-input"
-                value={newToken.skill}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, skill: event.target.value }))}
-                placeholder="Hab"
-              />
-              <input
-                className="entry-input"
-                value={newToken.evasion}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, evasion: event.target.value }))}
-                placeholder="Evasao"
-              />
-              <input
-                className="entry-input"
-                value={newToken.move}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, move: event.target.value }))}
-                placeholder="MOVE"
-              />
-              <input
-                className="entry-input"
-                value={newToken.sp}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, sp: event.target.value }))}
-                placeholder="SP"
-              />
-              <select
-                className="entry-input"
-                value={newToken.weaponKey}
-                onChange={(event) => setNewToken((prev) => ({ ...prev, weaponKey: event.target.value }))}
-              >
-                {Object.entries(WEAPONS).map(([key, weapon]) => (
-                  <option key={key} value={key}>
-                    {weapon.name}
-                  </option>
-                ))}
-              </select>
-              <label className="entry-card-text combat-checkbox">
-                <input
-                  type="checkbox"
-                  checked={newToken.autoDodge}
-                  onChange={(event) => setNewToken((prev) => ({ ...prev, autoDodge: event.target.checked }))}
-                />
-                Auto esquiva (REF 8+)
-              </label>
-            </div>
-            <button className="mission-add-btn" onClick={handleAddToken}>ADICIONAR</button>
-          </div>
-
-          <div className="entry-card">
-            <div className="entry-card-title">Tokens</div>
-            {tokens.length === 0 ? (
-              <div className="entry-card-text">Nenhum token ainda.</div>
-            ) : (
-              <div className="entries-list">
-                {tokens.map((token) => (
-                  <div key={token.id} className="entry-card">
-                    <div className="entry-card-title">{token.name}</div>
-                    <div className="entry-form compact">
-                      <input
-                        className="entry-input"
-                        value={token.name}
-                        onChange={(event) => handleTokenChange(token.id, 'name', event.target.value)}
-                      />
-                      <input
-                        className="entry-input"
-                        value={token.hp}
-                        onChange={(event) => handleTokenChange(token.id, 'hp', event.target.value)}
-                        placeholder="HP"
-                      />
-                      <input
-                        className="entry-input"
-                        value={token.maxHp}
-                        onChange={(event) => handleTokenChange(token.id, 'maxHp', event.target.value)}
-                        placeholder="HP Max"
-                      />
-                      <input
-                        className="entry-input"
-                        value={token.body}
-                        onChange={(event) => handleTokenChange(token.id, 'body', event.target.value)}
-                        placeholder="BODY"
-                      />
-                      <input
-                        className="entry-input"
-                        value={token.ref}
-                        onChange={(event) => handleTokenChange(token.id, 'ref', event.target.value)}
-                        placeholder="REF"
-                      />
-                      <input
-                        className="entry-input"
-                        value={token.dex}
-                        onChange={(event) => handleTokenChange(token.id, 'dex', event.target.value)}
-                        placeholder="DEX"
-                      />
-                      <input
-                        className="entry-input"
-                        value={token.skill}
-                        onChange={(event) => handleTokenChange(token.id, 'skill', event.target.value)}
-                        placeholder="Hab"
-                      />
-                      <input
-                        className="entry-input"
-                        value={token.evasion}
-                        onChange={(event) => handleTokenChange(token.id, 'evasion', event.target.value)}
-                        placeholder="Evasao"
-                      />
-                      <input
-                        className="entry-input"
-                        value={token.move}
-                        onChange={(event) => handleTokenChange(token.id, 'move', event.target.value)}
-                        placeholder="MOVE"
-                      />
-                      <input
-                        className="entry-input"
-                        value={token.sp}
-                        onChange={(event) => handleTokenChange(token.id, 'sp', event.target.value)}
-                        placeholder="SP"
-                      />
-                      <select
-                        className="entry-input"
-                        value={token.weaponKey}
-                        onChange={(event) => handleTokenChange(token.id, 'weaponKey', event.target.value)}
-                      >
-                        {Object.entries(WEAPONS).map(([key, weapon]) => (
-                          <option key={key} value={key}>
-                            {weapon.name}
-                          </option>
-                        ))}
-                      </select>
-                      <label className="entry-card-text combat-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={token.autoDodge}
-                          onChange={(event) => handleTokenChange(token.id, 'autoDodge', event.target.checked)}
-                        />
-                        Auto esquiva
-                      </label>
-                      <input
-                        className="entry-input"
-                        value={token.color}
-                        onChange={(event) => handleTokenChange(token.id, 'color', event.target.value)}
-                        placeholder="#cor"
-                      />
-                      <button
-                        className="mission-delete-btn"
-                        onClick={() => handleRemoveToken(token.id)}
-                      >
-                        EXCLUIR
-                      </button>
-                    </div>
-                    <div className="entry-card-text">Pos: {token.x},{token.y}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <details className="combat-rules">
-            <summary className="combat-rules-title">Regras Rapidas</summary>
-            <div className="combat-rules-body">
-              {COMBAT_OVERVIEW.map((item) => (
-                <div key={item.title} className="entry-card">
-                  <div className="entry-card-title">{item.title}</div>
-                  <div className="entry-card-text">{item.text}</div>
-                </div>
-              ))}
-
-              <div className="entry-card">
-                <div className="entry-card-title">Acoes em combate</div>
-                <table className="combat-table">
-                  <thead>
-                    <tr>
-                      <th>Acao</th>
-                      <th>Descricao</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {COMBAT_ACTIONS.map((row) => (
-                      <tr key={row.action}>
-                        <td>{row.action}</td>
-                        <td>{row.description}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Combate a distancia (DV)</div>
-                <div className="entry-card-text">
-                  {RANGED_RESOLUTION.map((line) => (
-                    <div key={line}>{line}</div>
-                  ))}
-                </div>
-                <table className="combat-table">
-                  <thead>
-                    <tr>
-                      <th>Arma</th>
-                      <th>0-6m</th>
-                      <th>7-12m</th>
-                      <th>13-25m</th>
-                      <th>26-50m</th>
-                      <th>51-100m</th>
-                      <th>101-200m</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {RANGED_DV_TABLE.map((row) => (
-                      <tr key={row.weapon}>
-                        <td>{row.weapon}</td>
-                        {row.ranges.map((value, idx) => (
-                          <td key={`${row.weapon}-${idx}`}>{value}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Autofire (DV)</div>
-                <table className="combat-table">
-                  <thead>
-                    <tr>
-                      <th>Arma</th>
-                      <th>0-6m</th>
-                      <th>7-12m</th>
-                      <th>13-25m</th>
-                      <th>26-50m</th>
-                      <th>51-100m</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {AUTOFIRE_TABLE.map((row) => (
-                      <tr key={row.weapon}>
-                        <td>{row.weapon}</td>
-                        {row.ranges.map((value, idx) => (
-                          <td key={`${row.weapon}-${idx}`}>{value}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Modos especiais</div>
-                <div className="entries-list">
-                  {SPECIAL_FIRE_MODES.map((mode) => (
-                    <div key={mode.title} className="entry-card">
-                      <div className="entry-card-title">{mode.title}</div>
-                      <div className="entry-card-text">{mode.text}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Municao especial</div>
-                <div className="entries-list">
-                  {SPECIAL_AMMO.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Combate corpo a corpo</div>
-                <div className="entry-card-text">
-                  {MELEE_RESOLUTION.map((line) => (
-                    <div key={line}>{line}</div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Armas Brancas</div>
-                <table className="combat-table">
-                  <thead>
-                    <tr>
-                      <th>Tipo</th>
-                      <th>Exemplos</th>
-                      <th>Dano</th>
-                      <th>Maos</th>
-                      <th>Ocultavel</th>
-                      <th>Custo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {MELEE_WEAPONS_TABLE.map((row) => (
-                      <tr key={row.type}>
-                        <td>{row.type}</td>
-                        <td>{row.examples}</td>
-                        <td>{row.damage}</td>
-                        <td>{row.hands}</td>
-                        <td>{row.concealable}</td>
-                        <td>{row.cost}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Briga (Brawling)</div>
-                <div className="entries-list">
-                  {BRAWLING_RULES.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Agarrar / Estrangular / Derrubar</div>
-                <div className="entries-list">
-                  {GRAPPLE_ACTIONS.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Artes Marciais</div>
-                <div className="entries-list">
-                  {MARTIAL_ARTS_STYLES.map((style) => (
-                    <div key={style.style} className="entry-card">
-                      <div className="entry-card-title">{style.style}</div>
-                      <div className="entries-list">
-                        {style.moves.map((move) => (
-                          <div key={move} className="entry-card-text">
-                            {move}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Defesa</div>
-                <div className="entries-list">
-                  {DEFENSE_RULES.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Cobertura</div>
-                <div className="entries-list">
-                  {COVER_RULES.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-                <table className="combat-table">
-                  <thead>
-                    <tr>
-                      <th>Material</th>
-                      <th>Grossa HP</th>
-                      <th>Fina HP</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {COVER_MATERIALS.map((row) => (
-                      <tr key={row.material}>
-                        <td>{row.material}</td>
-                        <td>{row.thick}</td>
-                        <td>{row.thin}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Escudos</div>
-                <div className="entries-list">
-                  {SHIELD_RULES.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Armadura</div>
-                <div className="entries-list">
-                  {ARMOR_RULES.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-                <table className="combat-table">
-                  <thead>
-                    <tr>
-                      <th>Armadura</th>
-                      <th>SP</th>
-                      <th>Penalidade</th>
-                      <th>Custo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ARMOR_TABLE.map((row) => (
-                      <tr key={row.armor}>
-                        <td>{row.armor}</td>
-                        <td>{row.sp}</td>
-                        <td>{row.penalty}</td>
-                        <td>{row.cost}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Dano e Ferimentos</div>
-                <div className="entries-list">
-                  {DAMAGE_STEPS.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Estados de Ferimento</div>
-                <table className="combat-table">
-                  <thead>
-                    <tr>
-                      <th>Estado</th>
-                      <th>Limiar</th>
-                      <th>Efeitos</th>
-                      <th>DV Estabilizacao</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {WOUND_STATES.map((row) => (
-                      <tr key={row.state}>
-                        <td>{row.state}</td>
-                        <td>{row.threshold}</td>
-                        <td>{row.effects}</td>
-                        <td>{row.dv}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Death Save</div>
-                <div className="entries-list">
-                  {DEATH_SAVE_RULES.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Lesoes Criticas</div>
-                <div className="entries-list">
-                  {CRIT_INJURY_RULES.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-                <div className="combat-two-column">
-                  <div>
-                    <div className="entry-card-title">Corpo (2d6)</div>
-                    <table className="combat-table">
-                      <thead>
-                        <tr>
-                          <th>Roll</th>
-                          <th>Resultado</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {CRIT_BODY_TABLE.map((row) => (
-                          <tr key={row.roll}>
-                            <td>{row.roll}</td>
-                            <td>{row.result}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <div className="entry-card-title">Cabeca (2d6)</div>
-                    <table className="combat-table">
-                      <thead>
-                        <tr>
-                          <th>Roll</th>
-                          <th>Resultado</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {CRIT_HEAD_TABLE.map((row) => (
-                          <tr key={row.roll}>
-                            <td>{row.roll}</td>
-                            <td>{row.result}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Estabilizacao</div>
-                <div className="entries-list">
-                  {STABILIZATION_RULES.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Cura Natural</div>
-                <div className="entries-list">
-                  {NATURAL_HEALING.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="entry-card">
-                <div className="entry-card-title">Tratamento de Lesoes Criticas</div>
-                <div className="entries-list">
-                  {CRIT_TREATMENT.map((line) => (
-                    <div key={line} className="entry-card-text">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </details>
+        <div className="combat-3d-layout">
+          <div className="combat-3d-canvas" ref={canvasRef}></div>
+          <div className="combat-3d-panel" ref={panelRef}></div>
+        </div>
+        <div className="combat-3d-tooltip" ref={tooltipRef}></div>
+        <div className="combat-3d-instructions">
+          Scroll: Zoom | Arrastar: Orbitar | Shift+Arrastar: Pan | Click Grid: Usar Ferramenta
         </div>
       </div>
     </div>

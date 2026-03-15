@@ -1,4 +1,4 @@
-.menu-layout {
+﻿.menu-layout {
   display: grid;
   grid-template-columns: minmax(200px, 240px) minmax(0, 680px) minmax(190px, 220px);
   width: 100%;
@@ -3821,3 +3821,371 @@ step-done {
     grid-template-columns: 1fr;
   }
 }
+
+/* Combat 3D panel */
+.combat-3d-shell {
+  width: min(1220px, 98vw);
+  max-width: min(1220px, 98vw);
+}
+
+.combat-3d-surface {
+  position: relative;
+  border: 1px solid rgba(255, 58, 58, 0.45);
+  background: rgba(5, 5, 8, 0.75);
+  border-radius: 14px;
+  overflow: hidden;
+  min-height: 640px;
+  margin-top: 12px;
+  padding-top: 38px;
+}
+
+.combat-3d-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.7);
+  border-bottom: 1px solid rgba(255, 58, 58, 0.35);
+  font-size: 0.7rem;
+  color: var(--cp-cyan);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  font-family: 'Share Tech Mono', monospace;
+}
+
+.combat-3d-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  min-height: 640px;
+}
+
+.combat-3d-canvas {
+  position: relative;
+  min-height: 640px;
+  background: radial-gradient(circle at center, rgba(120, 226, 255, 0.12), transparent 65%);
+}
+
+.combat-3d-canvas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(120, 226, 255, 0.15), transparent 60%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.combat-3d-canvas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.25) 3px,
+    rgba(0, 0, 0, 0) 4px
+  );
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.combat-3d-canvas canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.combat-3d-panel {
+  background: rgba(5, 5, 12, 0.92);
+  border-left: 1px solid rgba(255, 58, 58, 0.35);
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.combat-3d-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.combat-3d-panel::-webkit-scrollbar-thumb {
+  background: rgba(120, 226, 255, 0.35);
+}
+
+.combat-3d-tooltip {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(120, 226, 255, 0.5);
+  padding: 6px 10px;
+  font-size: 0.7rem;
+  pointer-events: none;
+  z-index: 10;
+  display: none;
+  max-width: 200px;
+  color: var(--cp-cyan);
+}
+
+.combat-3d-instructions {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 58, 58, 0.35);
+  padding: 6px 16px;
+  font-size: 0.7rem;
+  color: rgba(120, 226, 255, 0.75);
+  z-index: 6;
+  text-align: center;
+  pointer-events: none;
+}
+
+.combat-3d-panel .card {
+  border: 1px solid rgba(120, 226, 255, 0.2);
+  background: rgba(10, 10, 16, 0.6);
+  padding: 8px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+}
+
+.combat-3d-panel .card-title {
+  color: var(--cp-red);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 58, 58, 0.2);
+  padding-bottom: 4px;
+}
+
+.combat-3d-panel .card-line {
+  color: var(--cp-cyan);
+  font-size: 0.75rem;
+  margin-bottom: 6px;
+}
+
+.combat-3d-panel .card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.combat-3d-panel .btn {
+  background: rgba(120, 226, 255, 0.1);
+  color: var(--cp-cyan);
+  border: 1px solid rgba(120, 226, 255, 0.35);
+  padding: 4px 10px;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.combat-3d-panel .btn:hover {
+  border-color: var(--cp-cyan);
+  box-shadow: 0 0 8px rgba(120, 226, 255, 0.2);
+}
+
+.combat-3d-panel .btn.active {
+  border-color: var(--cp-red);
+  color: var(--cp-red);
+}
+
+.combat-3d-panel .btn.danger {
+  border-color: rgba(255, 58, 58, 0.6);
+  color: var(--cp-red);
+  background: rgba(255, 58, 58, 0.1);
+}
+
+.combat-3d-panel .btn.attack {
+  border-color: rgba(255, 153, 90, 0.6);
+  color: #ffb36b;
+}
+
+.combat-3d-panel .input {
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--cp-cyan);
+  border: 1px solid rgba(120, 226, 255, 0.3);
+  padding: 3px 6px;
+  font-size: 0.65rem;
+}
+
+.combat-3d-panel .input-sm {
+  width: 60px;
+}
+
+.combat-3d-panel .row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.combat-3d-panel .log-box {
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 0.65rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(120, 226, 255, 0.2);
+  padding: 4px;
+}
+
+.combat-3d-panel .log-line.crit {
+  color: #ff6b6b;
+  font-weight: 700;
+}
+
+.combat-3d-panel .log-line.dmg {
+  color: #ffb36b;
+}
+
+.combat-3d-panel .log-line.heal {
+  color: #6bffa6;
+}
+
+.combat-3d-panel .log-line.warn {
+  color: #ffe66d;
+}
+
+.combat-3d-panel .token-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.combat-3d-panel .token-item {
+  padding: 6px;
+  margin: 3px 0;
+  border: 1px solid rgba(120, 226, 255, 0.2);
+  background: rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.combat-3d-panel .token-item.selected {
+  border-color: var(--cp-cyan);
+  background: rgba(120, 226, 255, 0.08);
+}
+
+.combat-3d-panel .token-item.dead {
+  opacity: 0.5;
+}
+
+.combat-3d-panel .token-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.7rem;
+}
+
+.combat-3d-panel .token-meta {
+  font-size: 0.6rem;
+  color: rgba(120, 226, 255, 0.7);
+  margin-top: 2px;
+}
+
+.combat-3d-panel .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  color: rgba(120, 226, 255, 0.7);
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.combat-3d-panel .checkbox-label input {
+  accent-color: var(--cp-cyan);
+}
+
+.combat-3d-panel .hp-bar {
+  height: 4px;
+  background: #222;
+  margin-top: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.combat-3d-panel .phase-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.combat-3d-panel .phase-move {
+  background: rgba(68, 136, 255, 0.2);
+  color: #78e2ff;
+  border: 1px solid rgba(120, 226, 255, 0.35);
+}
+
+.combat-3d-panel .phase-attack {
+  background: rgba(255, 100, 0, 0.2);
+  color: #ffb36b;
+  border: 1px solid rgba(255, 153, 90, 0.4);
+}
+
+.combat-3d-panel .phase-action {
+  background: rgba(0, 255, 65, 0.1);
+  color: #6bffa6;
+  border: 1px solid rgba(100, 245, 157, 0.4);
+}
+
+.combat-3d-panel details summary {
+  cursor: pointer;
+  padding: 4px;
+  background: rgba(120, 226, 255, 0.08);
+  border: 1px solid rgba(120, 226, 255, 0.2);
+  font-size: 0.7rem;
+  color: var(--cp-cyan);
+}
+
+.combat-3d-panel .helper {
+  color: rgba(120, 226, 255, 0.55);
+  font-size: 0.65rem;
+  margin-top: 4px;
+}
+
+.combat-3d-panel .status-msg {
+  color: #ffe66d;
+  font-size: 0.7rem;
+  padding: 4px;
+}
+
+.combat-3d-panel .combat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.6rem;
+}
+
+.combat-3d-panel .combat-table th,
+.combat-3d-panel .combat-table td {
+  border: 1px solid rgba(120, 226, 255, 0.2);
+  padding: 2px 4px;
+}
+
+.combat-3d-panel .rules-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 900px) {
+  .combat-3d-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .combat-3d-panel {
+    border-left: none;
+    border-top: 1px solid rgba(255, 58, 58, 0.35);
+  }
+
+  .combat-3d-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: 0.6rem;
+  }
+}
+
